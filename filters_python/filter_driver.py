@@ -3,7 +3,7 @@ import time,os,sys
 
 if __name__ == '__main__':
     # dummy input
-    input = ['item'+str(i) for i in range(10000)]
+    input = ['item'+str(i) for i in range(2000)]
     filter = MortonFilter(len(input)//46 + 1)
     for item in input:
         filter.insert(item)

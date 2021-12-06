@@ -4,5 +4,7 @@
 /sample_codes
 /morton_filter_cpp
 /filters_python/__pycache__
-
+debug.txt
+/xdp_code/filters/output.txt
+*.o
 /.vscode

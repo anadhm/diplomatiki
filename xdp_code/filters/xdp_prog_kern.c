@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 */
+#include <arpa/inet.h>
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include <linux/if_ether.h>
@@ -10,6 +11,9 @@
 #include <sys/cdefs.h>
 #include <stdio.h>
 
+// #include <linux/socket.h>
+
+#include "../headers/dns.h"
 #include "morton_filter.h" /* defines helpers for filter */
 #include "common_kern_user.h" /* defines: struct datarec; */
 
@@ -49,30 +53,30 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 
 	// check packet size
 	if (eth + 1 > data_end){
-		return XDP_PASS;
+		return XDP_DROP;
 	}
 
 	// check if packet is ipv6
 	if (bpf_ntohs(eth->h_proto) != ETH_P_IP){
-		return XDP_PASS;
+		return XDP_DROP;
 	}
 
 	// get source IP address
 	struct iphdr *iph = data + sizeof(struct ethhdr);
 	if (iph + 1 > data_end){
-		return XDP_PASS;
+		return XDP_DROP;
 	}
 	// check for ping packets
 	if (iph->protocol != IPPROTO_ICMP){ //1 for icmp, may need bpf_ntoh
-		return XDP_PASS;
+		return XDP_DROP;
 	}
 	//__be32 address = iph->saddr;
-	// // for now filter has 2000 items
-	//int number = (__u32)address % 2000; // care for signed mod/div operation
-	// char item[n+1], where n is the length of the string +1 for \0
-	char item[9]="item627"; 
-	// item="item"+number, where 0<number<=2000
-	//snprintf(item, 9, "item%d", number);
+	// char *item = {0};
+	//inet_ntop(AF_INET,&address,item,sizeof(item)); //can't link external functions
+	// if (item==NULL){
+	// 	return XDP_DROP;
+	// }
+	char item[10]="10.11.1.2"; 
 	
 	/* we now have item and can calculate the hashes
 	to test if it is in the map (according to morton_filter*/
@@ -101,7 +105,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	unsigned short int ota_bit = TestBit(b, FSA_ARRAY_END+FCA_ARRAY_END+ota_index);
 
 	if (read_and_cmp(b, lbi1, fp) || !ota_bit){
-		return XDP_DROP; // item was found
+		return XDP_PASS; // item was found
 	}
 	else {
 		__u32 glbi2 = h2(item);
@@ -112,9 +116,9 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 		}
 		__u32 lbi2 = glbi2%BUCKETS_PER_BLOCK;
 		if (read_and_cmp(b, lbi2, fp)){
-			return XDP_DROP;
+			return XDP_PASS;
 		}
 	}
-	return XDP_PASS;
+	return XDP_DROP;
 }
 char _license[] SEC("license") = "GPL";

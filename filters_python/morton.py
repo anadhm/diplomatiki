@@ -24,7 +24,7 @@ def fill_bits(item,no_bits):
     # we add +2 to no_bits to accommodate for characters '0b'
     return format(item,'#0'+str(no_bits+2)+'b')
 class Block:
-    def __init__(self,no,block_size=512,fingerprint_size=8,overflow_bits=15,no_buckets=64,no_slots=3,no_fingerprints=46):
+    def __init__(self,no,block_size=512,fingerprint_size=8,overflow_bits=16,no_buckets=64,no_slots=3,no_fingerprints=46):
         self.ota = BitArray(overflow_bits) # initialize Overflow Tracking Array - OTA
         self.fca_bits = math.ceil(math.log2(no_slots))
         self.fca = BitArray(no_buckets*self.fca_bits) # initialize Fullness Counter Array - FCA

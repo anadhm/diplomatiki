@@ -16,6 +16,9 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+//depends on what packets we send with scapy
+#define UDP_DEST_PORT		53
+
 #define DNS_OPCODE_QUERY	0
 #define DNS_OPCODE_IQUERY	1
 #define DNS_OPCODE_STATUS	2

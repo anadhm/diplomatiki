@@ -3,7 +3,7 @@
 
 // TODO: find way to change these default values
 static const int BLOCKSIZE_BITS = 512;
-static const __u32 NO_BLOCKS = 44;
+static const __u32 NO_BLOCKS = 1;
 static const __u32 BUCKETS_PER_BLOCK = 64; //logical buckets
 static const __u32 OTA_BITS = 15;
 static const __u32 FCA_BITS = 2; //as in python code
@@ -17,9 +17,9 @@ static const __u32 FCA_ARRAY_END = BUCKETS_PER_BLOCK*FCA_BITS; // fca has this m
 // Due order of operation wrap 'k' in parentheses in case it
 // is passed as an equation, e.g. i + 1, otherwise the first
 // part evaluates to "A[i + (1/32)]" not "A[(i + 1)/32]"
-#define SetBit(A,k)     ( A[(k)/32] |= (1 << ((k)%32)) )
-#define ClearBit(A,k)   ( A[(k)/32] &= ~(1 << ((k)%32)) )
-#define TestBit(A,k)    ( A[(k)/32] & (1 << ((k)%32)) )
+#define SetBit(A,k)     ( A[(k)/8] |= (1 << (7 - (k)%8)) )
+#define ClearBit(A,k)   ( A[(k)/8] &= ~(1 << (7 - (k)%8)) )
+#define TestBit(A,k)    ( A[(k)/8] & (1 << (7 - (k)%8)) )
 
 static __always_inline __u32 integer_exp(__u32 a, __u32 b){
 	/* a is the base, b is the exponent */
@@ -33,7 +33,7 @@ static __always_inline __u32 integer_exp(__u32 a, __u32 b){
 	}
 	return result;
 }
-static __always_inline __u32 murmurhash(char * data){
+static __always_inline __u32 murmurhash(char * data, __u32 len){
     __u32 i = 0;
     __u32 byte = 0; // holds the last character in every iteration
     __u32 prev_byte = 0; // holds the previous from the last character in the iteration
@@ -45,7 +45,7 @@ static __always_inline __u32 murmurhash(char * data){
     // variables that will hold the hashes of the string
     __u32 h1 = 0;
     __u32 k = 0;
-    for (i = 0; i < 46; i = i + 1) {
+    for (i = 0; i < len; i = i + 1) {
         if (data[i] == 0) break;
         prev_prev_byte = prev_byte;
         prev_byte = byte;
@@ -113,60 +113,90 @@ static __always_inline __u32 map(__u32 item,__u32 n){
 	/* Maps item to [0,n-1] */
 	return item % n;
 }
-static __always_inline __u8 fingerprint(char * data){
+static __always_inline __u8 fingerprint(char * data,__u32 len){
 	//TODO: fingerprint size other than 8 bits?
-	return (__u8)(murmurhash(data)&0x000000ff);
+	return (__u8)(murmurhash(data,len)&0x000000ff);
 }
 static __always_inline __u32 offset(__u8 f){
-	int off_range = 16;
-	return (BUCKETS_PER_BLOCK + (f % off_range) )| 1;
+	__u32 off_range = 16;
+    __u32 ft = (__u32)f;
+	return (BUCKETS_PER_BLOCK + (ft % off_range) )| 1;
 }
 
-static __always_inline __u32 h1(char * data){
+static __always_inline __u32 h1(char * data,__u32 len){
 	/* Calculates MurmurHash of item and maps it to [0,n-1] */
-	__u32 hash = murmurhash(data);
+	__u32 hash = murmurhash(data,len);
 	__u32 h = map(hash,NO_BLOCKS*BUCKETS_PER_BLOCK);
 	return h;
 }
-static __always_inline __u32 h2(char * data){
-	__u8 fp = fingerprint(data);
-	__u32 first_hash = h1(data);
+static __always_inline __u32 h2(char * data,__u32 len){
+	__u8 fp = fingerprint(data,len);
+	__u32 first_hash = h1(data,len);
 	__u32 n = NO_BLOCKS*BUCKETS_PER_BLOCK;
 	__u32 second_hash = first_hash + (integer_exp(-1,first_hash&1))*offset(fp);
 	return map(second_hash,n);
 }
-static __always_inline int read_and_cmp(__u32 *block,__u32 lbi,__u8 fp){
+static __always_inline int read_and_cmp(__u8 *block,__u32 lbi,__u8 fp){
     __u32 bucket_capacities = 0;
-	int i,index;
+	__u32 i,index;
 	__u32 cap = 0;
 	#pragma unroll
 	for (i=0;i<=lbi;i++){
 		// fca bucket index in the block
 		index = FSA_ARRAY_END + i*FCA_BITS;
-		#pragma unroll
-		// add previous buckets' capacities, bit by bit
-		for (int j=0;j<FCA_BITS;j++){
-			unsigned short int bit = TestBit(block,index+j); // 0 or 1
-			if (i==lbi){
-				cap += integer_exp(bit,((index+j)%FCA_BITS));
-			} else {
-				bucket_capacities += integer_exp(bit,((index+j)%FCA_BITS)); // {0,1}^(position of bit)
-			}
-		}
+		int first_item=0xa0; // 0b11000000
+        int second_item=0x30; //0b00110000
+        int third_item=0x0a; //0b00001100
+        int fourth_item=0x03; //0b00000011
+        /* add previous buckets' capacities */
+        __u8 item = block[index/8];
+        __u8 temp_cap = 0;
+        __u8 mask;
+        switch (i%4){
+            case 0:
+                mask=first_item;
+                break;
+            case 1:
+                mask=second_item;
+                break;
+            case 2:
+                mask=third_item;
+                break;
+            case 3:
+                mask=fourth_item;
+                break;
+            default:
+                mask = 0;
+                break;
+        }
+        temp_cap = item & mask;
+        if (i==lbi){
+            cap += temp_cap;
+        } else {
+            bucket_capacities += temp_cap;
+        }
+        // #pragma unroll
+		// /* add previous buckets' capacities, bit by bit */
+		// for (int j=0;j<FCA_BITS;j++){
+		// 	int bit = TestBit(block,index+j); // 0 or 1
+		// 	// unsigned short int bit = TestBit(block,index+j); // 0 or 1
+        //     if (i==lbi){
+		// 		cap += integer_exp(bit,((index+j)%FCA_BITS));
+		// 	} else {
+		// 		bucket_capacities += integer_exp(bit,((index+j)%FCA_BITS)); // {0,1}^(position of bit)
+		// 	}
+		// }
 	}
 	// we now have previous buckets capacities and current bucket capacity
 	// so we can calculate bucket's index in fsa
-	index = bucket_capacities*FINGERPRINT_SIZE;
-	int found = 0;
+	// index = bucket_capacities*FINGERPRINT_SIZE;
+	index = bucket_capacities;
+    int found = 0;
 	__u8 cand_fp = 0;
 	int buc = 0;
-	while (!found || buc != cap){
-		// search in bucket's fingerprints
-		#pragma unroll
-		for (i=0;i<FINGERPRINT_SIZE;i++){
-            // construct candidate fp bit by bit
-			cand_fp |= (TestBit(block, index + buc*FINGERPRINT_SIZE + i) << i);
-		}
+	while ((!found) && (buc != cap)){
+		/* search in bucket's fingerprints */
+        cand_fp=block[index+buc];
 		if (cand_fp == fp){
 			found = 1;
 		} else { buc++; }

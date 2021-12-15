@@ -20,6 +20,13 @@
 #include "morton_filter.h" /* defines helpers for filter */
 #include "common_kern_user.h" /* defines: struct datarec; */
 
+#define bpf_printk(fmt, ...)                    \
+({                              \
+           char ____fmt[] = fmt;                \
+           bpf_trace_printk(____fmt, sizeof(____fmt),   \
+                ##__VA_ARGS__);         \
+})
+
 /* 
 	morton_filter_map is constructed as follows:
 	key = no of block
@@ -32,7 +39,7 @@
 struct bpf_map_def SEC("maps") morton_filter = {
 	.type        = BPF_MAP_TYPE_ARRAY,
 	.key_size    = sizeof(__u32), 
-	.value_size  = (BLOCKSIZE_BITS/8)*sizeof(__u8),
+	.value_size  = sizeof(struct Block),
 	.max_entries = NO_BLOCKS,
 };
 /* LLVM maps __sync_fetch_and_add() as a built-in function to the BPF atomic add
@@ -105,7 +112,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	// 	if (item[i]==0) break;
 	// 	length++;
 	// }
-	char name[10]="10.11.1.2";
+	char name[10]="10.11.1.1";
 	
 	/* we now have item and can calculate the hashes
 	to test if it is in the map (according to morton_filter*/
@@ -196,86 +203,102 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	__u32 n = NO_BLOCKS*BUCKETS_PER_BLOCK;
 	
 	__u32 hash1 = h1 % n;
-	__u8 fp = hash1&0x000000ff;
+	__u8 fp = h1&0x000000ff;
 	/* block no */
 	__u32 glbi1 = hash1;
 	__u32 block1 = glbi1/BUCKETS_PER_BLOCK; //should be integer division
-	__u8 b[64]; //BLOCKSIZE_BITS/8
-	__u8 *block;
+	// __u32 block1 = 0;
+	struct Block* block;
+
+	// #pragma unroll
+	// for (i = 0;i<BLOCKSIZE_BITS/8;i++){
+	// 	// bpf_printk("index:%u",i);
+	// 	// bpf_printk("cval:%u",b[i]);
+	// 	// bpf_printk(", svalue:%u",block->bitarray[i]);
+	// }
+
+	__u8 b[BLOCKSIZE_BITS/8]; //BLOCKSIZE_BITS/8
+	if (block1 > morton_filter.max_entries){
+		return XDP_ABORTED;
+	}
 	block=bpf_map_lookup_elem(&morton_filter,&block1);
 	if (!block){
 		return XDP_ABORTED; // key was not found
+	}
+	#pragma unroll
+	for (__u8 i=0;i<(BLOCKSIZE_BITS/8);i++){
+		//  __builtin_memcpy(&b[i],&block->bitarray[i],sizeof(__u8));
+		b[i] = block->bitarray[i];
+		//bpf_printk("item:%u",b[i]);
 	}
 	/* manipulate b as __u8 array of 512/8 = 64 elements
 	 and do bit arithmetic to extract info about filter
 	 (fsa,fca,ota)
 	*/
-	__builtin_memcpy(block,b,BLOCKSIZE_BITS/8);
+	
 	/* local bucket index */
 	__u32 lbi1 = glbi1%BUCKETS_PER_BLOCK;
 	unsigned short int ota_index = lbi1%OTA_BITS;
-	unsigned short int ota_bit = TestBit(b, FSA_ARRAY_END+FCA_ARRAY_END+ota_index);
-	int found = 0;
+	unsigned short int ota_bit = TestBit(block->bitarray, FSA_ARRAY_END+FCA_ARRAY_END+ota_index);
+	short unsigned int found = 0;
 
 	/* search in block */
-	__u32 bucket_capacities = 0;
-	__u32 index;
-	__u32 cap = 0;
+	__u16 cap = 0;
+	__u16 bucket_capacities = 0;
+	__u16 index;
+	
+	__u8 cand_fp=0;
+	__u16 temp_cap = 0;
 	#pragma unroll
-	for (i=0;i<=lbi1;i++){
-		/* fca bucket index in the block */
-		index = FSA_ARRAY_END + i*FCA_BITS;
-		int first_item=0xa0; // 0b11000000
-        int second_item=0x30; //0b00110000
-        int third_item=0x0a; //0b00001100
-        int fourth_item=0x03; //0b00000011
-        /* add previous buckets' capacities */
-        //boundary check
-		// if (b + index/8 + 1 > data_end){
-		// 	return XDP_DROP;
-		// }
-		__u8 item = b[index/8];
-        __u8 temp_cap = 0;
-        __u8 mask;
-        switch (i%4){
-            case 0:
-                mask=first_item;
-                break;
-            case 1:
-                mask=second_item;
-                break;
-            case 2:
-                mask=third_item;
-                break;
-            case 3:
-                mask=fourth_item;
-                break;
-            default:
-                mask = 0;
-                break;
-        }
-        temp_cap = item & mask;
-        if (i==lbi1){
-            cap += temp_cap;
-        } else {
-            bucket_capacities += temp_cap;
-        }
-	}
-	index = bucket_capacities;
-    __u8 cand_fp = 0;
-	int buc = 0;
-	while ((!found) && (buc != cap)){
-		/* search in bucket's fingerprints */
-        // boundary check
-		// if (b+ index + buc + 1 > data_end){
-		// 	return XDP_DROP;
-		// }
-		cand_fp=b[index+buc];
-		if (cand_fp == fp){
-			found = 1;
-		} else { buc++; }
-	}
+	for (__u8 i=0;i<BUCKETS_PER_BLOCK;i++){
+		if (i<lbi1){
+			/* fca bucket index in the block */
+			index = FSA_ARRAY_END + i*FCA_BITS;
+			/* add previous buckets' capacities */
+			// index >> 3 == index / 8
+			if (index >> 3 >= BUCKETS_PER_BLOCK){
+				return XDP_ABORTED;
+			}
+			__u8 item = b[index>>3];
+			temp_cap = 0;
+			__u8 mod = index%8;
 
+
+			temp_cap = (item >> (6 - mod)) & 0x03 ;
+			// bpf_printk("index:%u",index);
+			// bpf_printk("item:%u",item);
+			// bpf_printk("tcap:%u",temp_cap);
+			// bpf_printk("mask:%u",mask);
+			if (i != lbi1){
+				bucket_capacities += temp_cap;	
+			}		
+		}
+	}
+	// boundary checks
+	if ((FSA_ARRAY_END + lbi1*FCA_BITS)>>8 >= BUCKETS_PER_BLOCK){
+		return XDP_ABORTED;
+	}
+	__u8 item = b[(FSA_ARRAY_END + lbi1*FCA_BITS)>>3];
+	//bpf_printk("prob index:%u",(FSA_ARRAY_END + lbi1*FCA_BITS)>>3);
+	__u8 mod = (FSA_ARRAY_END + lbi1*FCA_BITS) % 8;
+	cap = item >> (6 - mod) & 0x03;
+	// bpf_printk("cap:%u",cap);
+	// bpf_printk("bcaps:%u",bucket_capacities);
+	__u8 buc = 0;
+	#pragma unroll
+	for (buc = 0;buc<46;buc++){
+		// boundary checks
+		if (bucket_capacities + buc >= BUCKETS_PER_BLOCK)
+			return XDP_DROP;
+		if (buc < cap && (bucket_capacities + buc >=0) && (bucket_capacities + buc < NO_FINGERPRINTS)){
+			cand_fp = b[bucket_capacities + buc];
+			if (cand_fp == fp){
+				found = 1;
+				break;
+			}
+		}
+	}
+	bpf_printk("found:%u, fp=%u",found,fp);
 	if (found || !ota_bit){
 		if (found) return XDP_PASS; // item was found
 	}
@@ -283,66 +306,56 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 		__u32 hash2 = hash1 + (integer_exp(-1, hash1&1))*offset(fp);
 		__u32 glbi2 = hash2 % n;
 		__u32 block2 = glbi2/BUCKETS_PER_BLOCK;
+		if (block2 > morton_filter.max_entries){
+			return XDP_ABORTED;
+		}
 		block = bpf_map_lookup_elem(&morton_filter,&block2);
 		if (!block){
 			return XDP_ABORTED; // key was not found
 		}
-		__builtin_memcpy(block, b, BLOCKSIZE_BITS/8);
+		for (int i=0;i<(BLOCKSIZE_BITS/8);i++){
+			b[i] = block->bitarray[i] ;
+		}
+		// b = (block->bitarray);
 		__u32 lbi2 = glbi2%BUCKETS_PER_BLOCK;
 		found = 0;
+		__u16 temp_cap = 0;
 		#pragma unroll
-		for (i=0;i<=lbi2;i++){
-			/* fca bucket index in the block */
+		for (i=0;i<BUCKETS_PER_BLOCK;i++){
+			if (i<lbi2) {/* fca bucket index in the block */
 			index = FSA_ARRAY_END + i*FCA_BITS;
-			int first_item=0xa0; // 0b11000000
-			int second_item=0x30; //0b00110000
-			int third_item=0x0a; //0b00001100
-			int fourth_item=0x03; //0b00000011
 			/* add previous buckets' capacities */
-			//boundary check
-			// if (b + index/8 + 1 > data_end){
-			// 	return XDP_DROP;
-			// }
+			// index >> 3 == index / 8
 			__u8 item = b[index/8];
-			__u8 temp_cap = 0;
-			__u8 mask;
-			switch (i%4){
-				case 0:
-					mask=first_item;
-					break;
-				case 1:
-					mask=second_item;
-					break;
-				case 2:
-					mask=third_item;
-					break;
-				case 3:
-					mask=fourth_item;
-					break;
-				default:
-					mask = 0;
-					break;
-			}
-			temp_cap = item & mask;
-			if (i==lbi2){
-				cap += temp_cap;
-			} else {
-				bucket_capacities += temp_cap;
+			temp_cap = 0;
+			__u8 mod = index % 8;
+			temp_cap = (item >> (6 % mod)) & 0x03;
+			bucket_capacities += temp_cap;
 			}
 		}
-		index = bucket_capacities;
+		// boundary checks
+		if ((FSA_ARRAY_END + lbi2*FCA_BITS)>>8 >= BUCKETS_PER_BLOCK){
+			return XDP_ABORTED;
+		}
+		__u8 item = b[(FSA_ARRAY_END + lbi2*FCA_BITS)>>3];
+		__u8 mod = (FSA_ARRAY_END + lbi1*FCA_BITS) % 8;
+		cap = item >> (6 - mod) & 0x03;
+
 		__u8 cand_fp = 0;
-		int buc = 0;
-		while ((!found) && (buc != cap)){
-			/* search in bucket's fingerprints */
-			// boundary check
-			// if (b+ index + buc + 1 > data_end){
-			// 	return XDP_DROP;
-			// }
-			cand_fp=b[index+buc];
-			if (cand_fp == fp){
-				found = 1;
-			} else { buc++; }
+		__u8 buc = 0;
+		//buc < 46 always
+		#pragma unroll
+		for (buc = 0;buc<46;buc++){
+			// boundary checks
+			if (bucket_capacities + buc >= BUCKETS_PER_BLOCK)
+				return XDP_DROP;
+			if (buc < cap && (bucket_capacities + buc >=0) && (bucket_capacities + buc < NO_FINGERPRINTS)){
+				cand_fp = b[bucket_capacities + buc];
+				if (cand_fp == fp){
+					found = 1;
+					break;
+				}
+			}
 		}
 		if (found){
 			return XDP_PASS;

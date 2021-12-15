@@ -15,6 +15,7 @@ static const char *__doc__ = "XDP loader\n"
 #include <locale.h>
 #include <unistd.h>
 #include <time.h>
+#include <string.h>
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
@@ -31,13 +32,13 @@ static const char *__doc__ = "XDP loader\n"
 static const char *default_filename = "xdp_prog_kern.o";
 //static const char *filter_output = "output.txt"; // the file that has the filter
 
-// Macros to manipulate bit arrays. It is assumed the encapsulating int has size of 32.
+// Macros to manipulate bit arrays. It is assumed the encapsulating int has size of 8.
 // Due order of operation wrap 'k' in parentheses in case it
 // is passed as an equation, e.g. i + 1, otherwise the first
 // part evaluates to "A[i + (1/32)]" not "A[(i + 1)/32]"
-#define SetBit(A,k)     ( A[(k)/8] |= (1 << ((k)%8)) )
-#define ClearBit(A,k)   ( A[(k)/8] &= ~(1 << ((k)%8)) )
-#define TestBit(A,k)    ( A[(k)/8] & (1 << ((k)%8)) )
+#define SetBit(A,k)     ( A[(k)/8] |= (1 << (7 - (k)%8)) )
+#define ClearBit(A,k)   ( A[(k)/8] &= ~(1 << (7 - (k)%8)) )
+#define TestBit(A,k)    ( A[(k)/8] & (1 << (7 - (k)%8)) )
 
 static const struct option_wrapper long_options[] = {
 
@@ -218,7 +219,7 @@ int main(int argc, char **argv)
 	}
 	/* Check map info */
 	map_expect.key_size = sizeof(__u32);
-	map_expect.value_size = (BLOCKSIZE_BITS/8) * sizeof(__u8); // 512 bits
+	map_expect.value_size = sizeof(struct Block); // 512 bits
 	map_expect.max_entries = NO_BLOCKS;
 
 	err = check_map_fd_info(&info, &map_expect);
@@ -249,15 +250,21 @@ int main(int argc, char **argv)
 	char char_array[BLOCKSIZE_BITS + 1]; // 1 char from file = 1 bit in filter, plus 1 character for EOL
 	/* Read chars from file, and when we have read BLOCKSIZE no of chars
 	load them as bitarray in bitarray. */
+	struct Block block = {0};
 	while((c = getc(f)) != EOF)
 	{
+		
 		index = processed_chars % (BLOCKSIZE_BITS+1);
 		processed_chars++;
 		char_array[index] = (char)c;
 		if (index==BLOCKSIZE_BITS){
 			// convert the char_array in a bitarray, in order to load it in the filter
 			strToBitArray(char_array,(BLOCKSIZE_BITS+1),bitarray,bitlen);
-			result = bpf_map_update_elem(filter_map_fd, &no_block, &bitarray, BPF_ANY);
+			for (int i=0;i<(BLOCKSIZE_BITS/8);i++){
+				block.bitarray[i] = bitarray[i];
+			}
+			//strcpy(block.bitarray,bitarray);
+			result = bpf_map_update_elem(filter_map_fd, &no_block, &block, BPF_ANY);
 			if (result != 0) {
     			fprintf(stderr, "bpf_map_update_elem error %d %s \n", errno, strerror(errno));
     			return 1;

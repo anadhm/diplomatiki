@@ -2,7 +2,7 @@
 #include <sys/cdefs.h>
 
 // TODO: find way to change these default values
-static const int BLOCKSIZE_BITS = 512;
+#define BLOCKSIZE_BITS 512
 static const __u32 NO_BLOCKS = 1;
 static const __u32 BUCKETS_PER_BLOCK = 64; //logical buckets
 static const __u32 OTA_BITS = 15;
@@ -12,7 +12,9 @@ static const __u32 FINGERPRINT_SIZE = 8;
 static const __u32 FSA_ARRAY_END = 368; // fsa has this many bits
 static const __u32 FCA_ARRAY_END = BUCKETS_PER_BLOCK*FCA_BITS; // fca has this many bits
 
-
+struct Block {
+    __u8 bitarray[BLOCKSIZE_BITS/8];
+};
 
 // Due order of operation wrap 'k' in parentheses in case it
 // is passed as an equation, e.g. i + 1, otherwise the first

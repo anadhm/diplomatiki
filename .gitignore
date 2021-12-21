@@ -8,3 +8,4 @@ debug.txt
 /xdp_code/filters/output.txt
 *.o
 /.vscode
+/xdp_code/filters/objdump.txt

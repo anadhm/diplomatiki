@@ -13,12 +13,8 @@
 #include <sys/cdefs.h>
 #include <stdio.h>
 
-// #include <linux/socket.h>
-
-// #include "../headers/dns.h"
 #include "dns.h"
 #include "morton_filter.h" /* defines helpers for filter */
-#include "common_kern_user.h" /* defines: struct datarec; */
 
 
 /* 
@@ -31,7 +27,7 @@
  */
  // map_fd[0]
 struct bpf_map_def SEC("maps") morton_filter = {
-	.type        = BPF_MAP_TYPE_PERCPU_ARRAY,
+	.type        = BPF_MAP_TYPE_ARRAY,
 	.key_size    = sizeof(__u32), 
 	.value_size  = sizeof(struct Block),
 	.max_entries = NO_BLOCKS,
@@ -44,12 +40,6 @@ struct bpf_map_def SEC("maps") morton_filter = {
                 ##__VA_ARGS__);         \
 })
 
-/* LLVM maps __sync_fetch_and_add() as a built-in function to the BPF atomic add
- * instruction (that is BPF_STX | BPF_XADD | BPF_W for word sizes)
- */
-// #ifndef lock_xadd
-// #define lock_xadd(ptr, val)	((void) __sync_fetch_and_add(ptr, val))
-// #endif
 
 SEC("xdp_morton_filter")
 int xdp_morton_filter_func(struct xdp_md *ctx)
@@ -70,15 +60,15 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 
 	/* check if packet is ipv4 */
 	if (bpf_ntohs(eth->h_proto) != ETH_P_IP){
-		bpf_print("PASS in eth proto");
-		return XDP_PASS;
+		bpf_print("drop in eth proto");
+		return XDP_DROP;
 	}
 
 	/* get source IP address */
 	struct iphdr *iph = data + sizeof(struct ethhdr);
 	if (iph + 1 > data_end){
-		//bpf_print("PASS in ip bounds");
-		return XDP_PASS;
+		//bpf_print("drop in ip bounds");
+		return XDP_DROP;
 	}
 	// if (iph->protocol != IPPROTO_ICMP){
 	// 	return XDP_DROP;
@@ -99,7 +89,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 		//bpf_print("drop in udp port = %u",udph->dest);
 		return XDP_DROP;
 	}
-	// prints in be eg len=40=0x0028, will print 0x2800=10240
+	// prints in big endian eg len=40=0x0028, will print 0x2800=10240
 	// bpf_print("source:%u",udph->source);
 	// bpf_print("dest:%u",udph->dest);
 	// bpf_print("len:%u",udph->len);
@@ -142,15 +132,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	// variables that will hold the hashes of the string
 	__u32 h1 = 0;
 	__u32 k = 0;
-	// #pragma unroll
-	// for (i=0;i<46;i=i+1){
-	// 	if (name + i + 1 > data_end) {
-	// 		bpf_print("drop in dns content bounds #2,i=%u",i);
-	// 		return XDP_DROP;
-	// 	} 
-	// 	// bpf_print("name slice:%c,i=%u ",*(char*)(name + i),i);
-	// 	if (*(char *)(name+i) == 0) break;
-	// }
+	
 	#pragma unroll
 	for (i = 0; i < 46; i = i + 1) {
 		if (name + i + 1 > data_end) {
@@ -237,35 +219,16 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	// __u32 block1 = 0;
 	
 
-	// #pragma unroll
-	// for (i = 0;i<BLOCKSIZE_BITS/8;i++){
-	// 	// bpf_print("index:%u",i);
-	// 	// bpf_print("cval:%u",b[i]);
-	// 	// bpf_print(", svalue:%u",block->bitarray[i]);
-	// }
-
-	__u8 b[BLOCKSIZE_BITS/8]; //BLOCKSIZE_BITS/8
-	// __builtin_memset(&b[0],0,sizeof(b));
-	/* initialize */
-	#pragma unroll
-	for (i=0;i<BLOCKSIZE_BITS/8;i++){
-		b[i] = 0;
-	}
-	// if (block1 > morton_filter.max_entries){
-	// 	//bpf_print("abort in #block check");
-	// 	return XDP_ABORTED;
-	// }
 	block=bpf_map_lookup_elem(&morton_filter,&block1);
 	if (!block){
-		//bpf_print("error in map lookup");
+		bpf_print("error in map lookup");
 		return XDP_ABORTED; // key was not found
 	}
-	#pragma unroll
-	for (__u8 i=0;i<(BLOCKSIZE_BITS/8);i++){
-		// __builtin_memcpy(&b[i],&block->bitarray[i],sizeof(__u8));
-		b[i] = block->bitarray[i];
-		//bpf_print("item:%u",b[i]);
-	}
+	// #pragma unroll
+	// for (__u8 i=0;i<(BLOCKSIZE_BITS/8);i++){
+	// 	bpf_print("item:%u",block->bitarray[i]);
+	// }
+
 	/* manipulate b as __u8 array of 512/8 = 64 elements
 	 and do bit arithmetic to extract info about filter
 	 (fsa,fca,ota)
@@ -296,7 +259,6 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 			}
 			__u8 item;
 			item = block->bitarray[index/8];
-			//__builtin_memcpy(&item,&b[index >> 3],sizeof(__u8));
 			// item = 0;
 			temp_cap = 0;
 			__u8 mod = index%8;
@@ -318,12 +280,12 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 		// bpf_print("abort in index check");
 		return XDP_ABORTED;
 	}
+	//bpf_print("item0:%u\n",block->bitarray[0]);
 	item = block->bitarray[(index/8)];
-	// bpf_print("problemi:%u",(FSA_ARRAY_END + lbi1*FCA_BITS)>>3);
 	__u8 mod = (FSA_ARRAY_END + lbi1*FCA_BITS) % 8;
 	// bpf_print("lbi1:%u,index:%u,mod:%u",lbi1,index/8,mod);
 	cap = (unsigned int)((item >> (6 - mod)) & 0x03);
-	//bucket_capacities = 0; // out of memory bounds according to verifier
+	//bucket_capacities = 0;
 	__u8 buc = 0;
 	#pragma unroll
 	for (buc = 0;buc<3;buc++){
@@ -345,7 +307,6 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 				// bpf_print("cand_fp:%u",cand_fp);
 				}
 			else return XDP_DROP;
-			
 			// bpf_print("cf:%u",cand_fp);
 			if (cand_fp == fp){
 				found = 1;
@@ -353,10 +314,11 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 			}
 		}
 	}
+	bpf_print("found:%u",found);
 	//bpf_print("found:%u, fp=%u",found,fp);
 	if (found || !ota_bit){
 		if (found) {
-			//bpf_print("success");
+			//bpf_print("success!\n"); // verifier rejects this print??
 			return XDP_PASS;
 			} // item was found
 	}
@@ -372,9 +334,6 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 		if (!block){
 			return XDP_ABORTED; // key was not found
 		}
-		// for (int i=0;i<(BLOCKSIZE_BITS/8);i++){
-		// 	b[i] = block->bitarray[i] ;
-		// }
 		__u32 lbi2 = glbi2%BUCKETS_PER_BLOCK;
 		found = 0;
 		__u16 temp_cap = 0;
@@ -409,7 +368,6 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 
 		__u8 cand_fp = 0;
 		__u8 buc = 0;
-		//buc < 3 always
 		#pragma unroll
 		for (buc = 0;buc<3;buc++){
 			// buc <3, since we have 3 slots per bucket
@@ -438,9 +396,12 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 				}
 			}
 		}
-		if (found) {return XDP_PASS;}
+		if (found) {
+			//bpf_print("success!\n");
+			return XDP_PASS;
+			}
 	}
-	bpf_print("failure");
+	bpf_print("failure\n");
 	return XDP_DROP;
 }
 char _license[] SEC("license") = "GPL";

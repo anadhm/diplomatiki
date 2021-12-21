@@ -63,14 +63,15 @@ int main(){
             // for (int i=0;i<bitlen;i++){
             //     printf(" %u ",bitarray[i]);
             // }
+			// printf("\n");
 		no_block++;
 		}
 	}
     /* Try to search for something */
-    char * item = "10.11.1.2";
-    __u32 len = strlen(item);
-    __u8 fp = fingerprint(item, len);
-    __u32 lbi1 = h1(item, len); // ==glbi1 if we have 1 block
+    char * name = "10.11.1.2";
+    __u32 len = strlen(name);
+    __u8 fp = fingerprint(name, len);
+    __u32 lbi1 = h1(name, len); // ==glbi1 if we have 1 block
     __u32 block1 = 0;
     
     //printf("len = %u, fp = %u, lbi1 = %u\n",len,fp,lbi1);
@@ -81,48 +82,24 @@ int main(){
     printf("lbi1= %u\n",lbi1);
     printf("map[55] = %u\n",bitarray[55]);
 	#pragma unroll
-	for (i=0;i<=lbi1;i++){
+	for (i=0;i<lbi1;i++){
 		/* fca bucket index in the block */
 		index = FSA_ARRAY_END + i*FCA_BITS;
-		int first_item=0xc0; // 0b11000000
-        int second_item=0x30; //0b00110000
-        int third_item=0x0c; //0b00001100
-        int fourth_item=0x03; //0b00000011
         /* add previous buckets' capacities */
 		__u8 item = bitarray[index/8];
         printf("index = %u\n",index);
         __u8 temp_cap = 0;
         __u8 mask;
-        switch (i%4){
-            case 0:
-                mask=first_item;
-                // printf("first case\n");
-                break;
-            case 1:
-                mask=second_item;
-                // printf("second case\n");
-                break;
-            case 2:
-                mask=third_item;
-                // printf("third case\n");
-                break;
-            case 3:
-                mask=fourth_item;
-                // printf("fourth case\n");
-                break;
-            default:
-                mask = 0;
-                printf("error\n");
-                break;
-        }
-        temp_cap = (item & mask) >> (6 - (i%4)*2);
-        printf("temp_cap = %u, item = %u, mask = %u\n",temp_cap,item,mask);
-        if (i==lbi1){
-            cap += temp_cap;
-        } else {
-            bucket_capacities += temp_cap;
-        }
+        __u8 mod = i%8;
+        temp_cap = (item >> (6 - mod)) & 0x03;
+        printf("temp_cap = %u, item = %u\n",temp_cap,item);
+		bucket_capacities += temp_cap;
+        
 	}
+	index = FSA_ARRAY_END + lbi1*FCA_BITS;
+	__u8 item = bitarray[index/8];
+	__u8 mod = index % 8;
+	cap = (unsigned int)((item >> (6 - mod)) & 0x03);
 	index = bucket_capacities;
     __u8 cand_fp = 0;
 	int buc = 0;
@@ -133,7 +110,7 @@ int main(){
 			found = 1;
 		} else { buc++; }
 	}
-   
+	printf("Size of array (sizeof):%lu\n",sizeof(bitarray));
     printf("previous buckets: %u, current bucket: %u.\n",bucket_capacities,cap);
     if (found) printf("found!\n");
     return found;

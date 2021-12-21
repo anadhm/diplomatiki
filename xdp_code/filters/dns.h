@@ -33,7 +33,7 @@ struct dnshdr {
 	uint16_t	nanswers;	/* Answers */
 	uint16_t	nauth;		/* Authority PRs */
 	uint16_t	nother;		/* Other PRs */
-	unsigned char	data[1];	/* Data, variable length */
+	//unsigned char	data[1];	/* Data, variable length */
 };
 
 extern void DnsStart(void);		/* Begin DNS */

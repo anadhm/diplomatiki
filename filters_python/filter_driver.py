@@ -9,7 +9,10 @@ if __name__ == '__main__':
     #     filter.insert(item)
 
     # test 1: ping from 10.11.1.2
-    input = ["10.11.1.2"]
+    # test 2: dns query for www.google.com
+    # dns payload format
+    s = chr(3) + "www" + chr(6) + "google" + chr(3) + "com"
+    input = ["10.11.1.2",s]
     filter = MortonFilter(len(input)//46 + 1)
     for item in input:
         filter.insert(item)

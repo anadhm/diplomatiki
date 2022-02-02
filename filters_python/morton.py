@@ -48,9 +48,14 @@ class Block:
         # there are 3 different methods to map fp to ota bit in the notes, we choose the simplest one
         return lbi % (self.ota.len)
 
-    def set_OTA(self,lbi):
+    def set_OTA(self,lbi,verbose=False):
         index = self.index_OTA(lbi)
+        if verbose:
+            print(f"setting OTA bit at index:{index}, bit before set:{self.ota[index]}")
         self.ota.set(True,index)
+        if verbose:
+            print(f"OTA bit after set: {self.ota[index]}")
+            print("~~~~~~~~~~")
         return
 
     def get_OTA(self,lbi):
@@ -69,7 +74,7 @@ class Block:
         return self.fca[lbi*bits:(lbi+1)*bits].uint
 
 
-    def table_simple_store(self,bucket,fp): ## insert will succeed because we checked it beforehand
+    def table_simple_store(self,bucket,fp,verbose=False): ## insert will succeed because we checked it beforehand
         offset = 0
         bits = self.fca_bits
         bucket_cap = self.bucket_capacity(bucket)
@@ -79,6 +84,9 @@ class Block:
         for i in range(bucket):
             cap = self.bucket_capacity(i)
             offset += cap
+        if verbose:
+            print("inside table_simple_store")
+            print(f"bucket_cap : {bucket_cap}, offset: {offset}")
         # shift by one slot (equal to self.fp_size) the elements in the fsa
         self.fsa[(offset + bucket_cap)*self.fp_size::] >>= self.fp_size
         # store the fingerprint
@@ -87,26 +95,37 @@ class Block:
         self.fca.overwrite(BitArray(fill_bits(bucket_cap+1,bits)),bucket*bits)
         return
 
-    def read_and_cmp(self,lbi,fp):
+    def read_and_cmp(self,lbi,fp,verbose=False):
         """Reads a block at the bucket lbi and returns true if fp is in the block."""
         offset = 0
         match = False
         bucket_cap = self.bucket_capacity(lbi)
+        if verbose:
+            print(f"inside read_and_cmp, bucket_cap : {bucket_cap}.")
         for i in range(lbi):
             # fca is a bitarray
             # we need to count 2 bits for each bucket
             # hence this weird for loop
             cap = self.bucket_capacity(i)
             offset += cap
+        if verbose:
+            print(f"searching, offset = {offset}")
         for i in range(bucket_cap):
             index = offset+i
             # some pointer arithmetic to get the item from bitarray
             item = self.fsa[index*self.fp_size:(index+1)*self.fp_size]
             # for now fp is in binary string form, and item is a BitArray
             # we can directly compare them
+            if verbose:
+                print(f"candidate fp,index = {item.hex}, {index*self.fp_size}")
             if (item==fp):
                 match = True
+                if verbose:
+                    print(f"item found on index:{index*self.fp_size}")
                 break
+            if verbose:
+                print(f"result of read_and_cmp is {match}.")
+                print("----------")
         return match
         
 
@@ -203,9 +222,11 @@ class MortonFilter:
         temp = bucket_index + ((-1)**(bucket_index & 1))*self.offset(fp)
         return self.map(temp,n)
     
-    def insert(self,item):
+    def insert(self,item,verbose=False):
         fp = fingerprint(item)
         if (self.query(item)):
+            if verbose:
+                print(f"item: {item} already in filter")
             return # if item seems already in the filter,don't add it again
             # that would cause duplicates that are in the same bucket and have the same fingerprint
             # and complicate eviction process
@@ -214,27 +235,40 @@ class MortonFilter:
         block1 = self.Blocks[glbi1//self.no_buckets]
         # local (in the block) bucket index -> 0 <= lbi <= no_buckets
         lbi1 = glbi1 % self.no_buckets
+        if verbose:
+            print(f"inserting item: {repr(item)} with fp: {hex(int(fp,2))}, at block:{glbi1//self.no_buckets},lbi:{glbi1%self.no_buckets} ")
         # bucket overflow: bucket lbi1 is full
         if (block1.bucket_capacity(lbi1) == block1.no_slots or \
             # block overflow: fsa is(?) full --> check if the last element is 0
             (not block1.has_capacity())):
+                if verbose:
+                    print(f"Block 1 overflow or bucket capacity for item: {item}")
                 ## this is where we check h2(item)
-                block1.set_OTA(lbi1)
+                block1.set_OTA(lbi1,verbose)
                 glbi2 = self.h2(item)
                 block2 = self.Blocks[glbi2//self.no_buckets]
                 lbi2 = glbi2 % self.no_buckets
 
                 if (block2.bucket_capacity(lbi2) == block2.no_slots or \
                     (not block2.has_capacity())): # conflict resolution -- cuckoo hashing
-                        self.res_conflict(block1,lbi1,lbi2,fp)
-                else: # insert will be a success in this branch 
+                        if verbose:
+                            print(f"Block 2 overflow or bucket capacity for item: {item}, proceed to conflict res")
+                            print("++++++++++++")
+                        self.res_conflict(block1,lbi1,lbi2,fp,verbose)
+                else: # insert will be a success in this branch
+                    if verbose:
+                        print("storing item at h2")
+                        print("++++++++++++") 
                     block2.table_simple_store(lbi2, fp)
         else: # we put item at 'h1'
-            block1.table_simple_store(lbi1,fp)
+            if verbose:
+                print("storing item at h1")
+                print("++++++++++++")
+            block1.table_simple_store(lbi1,fp,verbose)
         return
         
         
-    def check_candidate_bucket(self,glbi,fp):
+    def check_candidate_bucket(self,glbi,fp,verbose=False):
         """Returns true if candidate bucket is available."""
         alternate_bucket = self.h_prime(glbi,fp)
         alt_blk = self.Blocks[alternate_bucket//self.no_buckets]
@@ -242,9 +276,14 @@ class MortonFilter:
         alt_cap = alt_blk.bucket_capacity(alt_lbi)
         bucket_of = (alt_cap == alt_blk.no_slots) # true if there is overflow
         block_of = not alt_blk.has_capacity() # true if there is overflow
+        if verbose:
+            print(f"alternate bucket is {alternate_bucket//self.no_buckets}")
+            print(f"alternate lbi is: {alt_lbi} of capacity {alt_cap}")
+            print(f"bucket overflow: {bucket_of}, block overflow: {block_of}")
+            print("+-+-+-+-+-+-+-+-")
         return ((not bucket_of) and (not block_of))
 
-    def remove_and_replace(self,old_blk, gbucket_index1, gbucket_index2, old_fp, new_fp,simple=True, same_bucket=True):
+    def remove_and_replace(self,old_blk, gbucket_index1, gbucket_index2, old_fp, new_fp,simple=True, same_bucket=True,verbose=False):
         """Places old_fp at its alternate bucket(and block), sets the OTA in the old_blk and puts new_fp in its place."""
         """"Flags:
             simple: True if we have one level eviction, False if we have multiple level eviction
@@ -299,7 +338,7 @@ class MortonFilter:
             print('error in remove_and_replace')
         return success
     
-    def res_conflict(self,blk1,lbi1,lbi2,fp):
+    def res_conflict(self,blk1,lbi1,lbi2,fp,verbose=False):
         max_count = 300 # max times we can try evicting a fingerprint
         count = 0 # current count
         evicted = False
@@ -388,20 +427,29 @@ class MortonFilter:
             # no_blocks*no_fingerprints > no_items
         return
 
-    def query(self,item):
+    def query(self,item,verbose=False):
         fp = fingerprint(item)
         glbi1 = self.h1(item)
         block1 = self.Blocks[glbi1//self.no_buckets]
         lbi1 = glbi1 % self.no_buckets
         ota_bit = block1.get_OTA(lbi1)
-        match = block1.read_and_cmp(lbi1, fp)
+        if verbose:
+            print(f"fp = {(int(fp,2))}, block1 = {glbi1//self.no_buckets} lbi1 = {lbi1}, ota_bit = {ota_bit}")
+        match = block1.read_and_cmp(lbi1, fp, verbose)
         if (match or not(ota_bit)):
+            if (match and verbose):
+                print(f"found fp = {(int(fp,2))} at block {glbi1//self.no_buckets} and bucket {lbi1}")
             return match
         else:
             glbi2 = self.h2(item)
             block2 = self.Blocks[glbi2//self.no_buckets]
             lbi2 = glbi2 % self.no_buckets
-            return block2.read_and_cmp(lbi2, fp)
+            if verbose:
+                print(f"fp = {(int(fp,2))}, block2 = {glbi2//self.no_buckets} lbi2 = {lbi2}")
+            match = block2.read_and_cmp(lbi2, fp, verbose) 
+            if (match and verbose):
+                print(f"found fp = {(int(fp,2))} at block {glbi1//self.no_buckets} and bucket {lbi1}")    
+            return match
     
     def printFilter(self):
         for i,blk in enumerate(self.Blocks):

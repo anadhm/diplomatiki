@@ -16,17 +16,23 @@ if __name__ == '__main__':
     
     names_file = "ntua_names"
     domain_form = chr(len("example")) + "example" + chr(3) + "com"
-    input = []
+    input_l = []
     counter = 0
     with open(names_file,"r") as f:
-        for name in f.readlines():
+        lines = f.readlines()
+        for name_r in lines:
+            name = name_r.rstrip()
             item = chr(len(name)) + name + domain_form
-            input.append(item)
+            input_l.append(item)
             counter = counter + 1
-    filter = MortonFilter(len(input)//46 + 1)
-    for item in input:
+    filter = MortonFilter(len(input_l)//46 + 1)
+    for item in input_l:
         filter.insert(item)
-
+    #     print(f"{item} inserted in filter")
+    #     found = filter.query(item)
+    #     if found:
+    #         print(f"{item} found in filter right after insertion")
+    
     # write in file
     output_file = '../xdp_code/filters/output.txt'
     serialized = filter.serialize()

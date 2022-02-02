@@ -60,7 +60,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 
 	/* check if packet is ipv4 */
 	if (bpf_ntohs(eth->h_proto) != ETH_P_IP){
-		bpf_print("drop in eth proto");
+		// bpf_print("drop in eth proto");
 		return XDP_DROP;
 	}
 
@@ -212,7 +212,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	
 	__u32 hash1 = h1 % n;
 	__u8 fp = h1&0x000000ff;
-	bpf_print("fp:%u",fp);
+	// bpf_print("fp:%u",fp);
 	/* block no */
 	__u32 glbi1 = hash1;
 	__u32 block1 = glbi1/BUCKETS_PER_BLOCK; //should be integer division
@@ -283,7 +283,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	//bpf_print("item0:%u\n",block->bitarray[0]);
 	item = block->bitarray[(index/8)];
 	__u8 mod = (FSA_ARRAY_END + lbi1*FCA_BITS) % 8;
-	// bpf_print("lbi1:%u,index:%u,mod:%u",lbi1,index/8,mod);
+	//bpf_print("lbi1:%u,index:%u,mod:%u",lbi1,index/8,mod);
 	cap = (unsigned int)((item >> (6 - mod)) & 0x03);
 	//bucket_capacities = 0;
 	__u8 buc = 0;
@@ -291,7 +291,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	for (buc = 0;buc<3;buc++){
 		// buc <3, since we have 3 slots per bucket
 		// boundary checks
-		// bpf_print("bacps:%u,cap=%u",bucket_capacities,cap);
+		// bpf_print("bcaps:%u,cap=%u",bucket_capacities,cap);
 		if (bucket_capacities + buc >= NO_FINGERPRINTS){
 				//bpf_print("abort in index check #2");
 				return XDP_DROP;
@@ -321,15 +321,18 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 			//bpf_print("success!\n"); // verifier rejects this print??
 			return XDP_PASS;
 			} // item was found
+		else {
+			bpf_print("ota_bit not set, item not found");
+		}
 	}
 	else {
 		__u16 in = 0;
 		__u32 hash2 = hash1 + (integer_exp(-1, hash1&1))*offset(fp);
 		__u32 glbi2 = hash2 % n;
 		__u32 block2 = glbi2/BUCKETS_PER_BLOCK;
-		if (block2 > morton_filter.max_entries){
-			return XDP_ABORTED;
-		}
+		//if (block2 > morton_filter.max_entries){
+		//	return XDP_ABORTED;
+		//}
 		block = bpf_map_lookup_elem(&morton_filter,&block2);
 		if (!block){
 			return XDP_ABORTED; // key was not found

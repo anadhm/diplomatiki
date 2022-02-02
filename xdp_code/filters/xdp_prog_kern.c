@@ -108,7 +108,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	char * name = data + sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct dnshdr);
 	if (name + 1 > data_end){
 		//bpf_print("abort in dns content bounds");
-		return XDP_ABORTED;
+		return XDP_DROP;
 	}
 	
 	struct Block * block;
@@ -222,7 +222,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	block=bpf_map_lookup_elem(&morton_filter,&block1);
 	if (!block){
 		bpf_print("error in map lookup");
-		return XDP_ABORTED; // key was not found
+		return XDP_DROP; // key was not found
 	}
 	// #pragma unroll
 	// for (__u8 i=0;i<(BLOCKSIZE_BITS/8);i++){
@@ -255,7 +255,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 			/* add previous buckets' capacities */
 			// index >> 3 == index / 8
 			if ((index / 8) >= (BLOCKSIZE_BITS / 8)){
-				return XDP_ABORTED;
+				return XDP_DROP;
 			}
 			__u8 item;
 			item = block->bitarray[index/8];
@@ -278,7 +278,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	index = FSA_ARRAY_END + lbi1*FCA_BITS;
 	if ((index/8) >= (BLOCKSIZE_BITS/8)){
 		// bpf_print("abort in index check");
-		return XDP_ABORTED;
+		return XDP_DROP;
 	}
 	//bpf_print("item0:%u\n",block->bitarray[0]);
 	item = block->bitarray[(index/8)];
@@ -322,7 +322,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 			return XDP_PASS;
 			} // item was found
 		else {
-			bpf_print("ota_bit not set, item not found");
+			bpf_print("ota_bit not set, item not found in h1");
 		}
 	}
 	else {
@@ -335,7 +335,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 		//}
 		block = bpf_map_lookup_elem(&morton_filter,&block2);
 		if (!block){
-			return XDP_ABORTED; // key was not found
+			return XDP_DROP; // key was not found
 		}
 		__u32 lbi2 = glbi2%BUCKETS_PER_BLOCK;
 		found = 0;
@@ -348,7 +348,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 				in = FSA_ARRAY_END + i*FCA_BITS;
 				/* add previous buckets' capacities */
 				// index >> 3 == index / 8
-				if (in/8 >= BLOCKSIZE_BITS/8) return XDP_ABORTED;
+				if (in/8 >= BLOCKSIZE_BITS/8) return XDP_DROP;
 				__u8 item;
 				item = block->bitarray[in/8];
 				// __u8 item = 0;
@@ -361,7 +361,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 		// boundary checks
 		in = FSA_ARRAY_END + lbi2*FCA_BITS;
 		if ((FSA_ARRAY_END + lbi2*FCA_BITS)/8 >= BLOCKSIZE_BITS/8){
-			return XDP_ABORTED;
+			return XDP_DROP;
 		}
 		__u8 item;
 		item = block->bitarray[(in/8)];
@@ -390,7 +390,9 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 					cand_fp = block->bitarray[in];
 					// ;;
 					}
-				else return XDP_DROP;
+				else {
+					return XDP_DROP;
+				}
 				
 				// bpf_print("cf:%u",cand_fp);
 				if (cand_fp == fp){
@@ -402,7 +404,10 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 		if (found) {
 			//bpf_print("success!\n");
 			return XDP_PASS;
-			}
+		}
+		else {
+			bpf_print("item not found in h2");
+		}
 	}
 	bpf_print("failure\n");
 	return XDP_DROP;

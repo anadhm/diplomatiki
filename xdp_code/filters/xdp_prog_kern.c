@@ -60,8 +60,8 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 
 	/* check if packet is ipv4 */
 	if (bpf_ntohs(eth->h_proto) != ETH_P_IP){
-		// bpf_print("drop in eth proto");
-		return XDP_DROP;
+		bpf_print("not eth proto, proto:%u",bpf_ntohs(eth->h_proto));
+		return XDP_PASS;
 	}
 
 	/* get source IP address */

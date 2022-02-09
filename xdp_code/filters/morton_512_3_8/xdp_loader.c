@@ -23,9 +23,9 @@ static const char *__doc__ = "XDP loader\n"
 #include <net/if.h>
 #include <linux/if_link.h> /* depend on kernel-headers installed */
 
-#include "../common/common_params.h"
-#include "../common/common_user_bpf_xdp.h"
-#include "../common/common_libbpf.h"
+#include "../../common/common_params.h"
+#include "../../common/common_user_bpf_xdp.h"
+#include "../../common/common_libbpf.h"
 #include "common_kern_user.h"
 
 #include "morton_filter.h"
@@ -243,7 +243,7 @@ int main(int argc, char **argv)
 	int index =0; 
 	int processed_chars = 0;
 	uint no_block = 0;
-	uint bitlen = BLOCKSIZE_BITS/8; // how many __u32 we need to fit 1 block in a u32 array
+	uint bitlen = BLOCKSIZE_BITS/FINGERPRINT_SIZE; // how many __u8 we need to fit 1 block in a u32 array
 	__u32 c;
 	__u32 result = 0;
 	__u8 bitarray[bitlen]; // __u8 = 8 bits, whole bitarray = 1 block
@@ -260,10 +260,9 @@ int main(int argc, char **argv)
 		if (index==BLOCKSIZE_BITS){
 			// convert the char_array in a bitarray, in order to load it in the filter
 			strToBitArray(char_array,(BLOCKSIZE_BITS+1),bitarray,bitlen);
-			for (int i=0;i<(BLOCKSIZE_BITS/8);i++){
+			for (int i=0;i<bitlen;i++){
 				block.bitarray[i] = bitarray[i];
 			}
-			//strcpy(block.bitarray,bitarray);
 			result = bpf_map_update_elem(filter_map_fd, &no_block, &block, BPF_ANY);
 			if (result != 0) {
     			fprintf(stderr, "bpf_map_update_elem error %d %s \n", errno, strerror(errno));

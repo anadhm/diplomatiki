@@ -2,3 +2,5 @@
 output.txt
 ntua_names
 write_zones.py
+/cuckoo_filter
+invalid_names.txt

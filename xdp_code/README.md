@@ -1,11 +1,11 @@
-The XDP filter is located @ filters/xdp_prog_kern.c
+The XDP morton filter is located @ filters//morton/xdp_prog_kern.c
 Dependencies:
 * llvm, libelf-dev, libpcap-dev, gcc-multilib, build-essential
 * linux-headers-$(uname -r)
 
-Serialized form of morton filter is in filters/output.txt
+Serialized form of morton filter is in filters/morton/output.txt
 
-* cd filters && make 
+* cd filters/morton && make 
 
 How to load the filter:
 

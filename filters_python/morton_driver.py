@@ -1,19 +1,7 @@
 from morton import *
-import time,os,sys
+import time,os,sys,math
 
 if __name__ == '__main__':
-    # # dummy input
-    # input = ['item'+str(i) for i in range(2000)]
-    # filter = MortonFilter(len(input)//46 + 1)
-    # for item in input:
-    #     filter.insert(item)
-
-    # test 1: ping from 10.11.1.2
-    # test 2: dns query for www.google.com
-    # dns payload format
-    # s = chr(3) + "www" + chr(6) + "google" + chr(3) + "com"
-    # input = ["10.11.1.2",s]
-    
     names_file = "ntua_names"
     domain_form = chr(len("example")) + "example" + chr(3) + "com"
     input_l = []
@@ -25,7 +13,10 @@ if __name__ == '__main__':
             item = chr(len(name)) + name + domain_form
             input_l.append(item)
             counter = counter + 1
-    filter = MortonFilter(len(input_l)//46 + 1)
+    # if we want 0.95 load factor, then we need x*0.95 = len(input)
+    # -> x = len(input)/0.95 -> blocks = x//46 +1 
+    x = len(input_l)/0.95
+    filter = MortonFilter(math.ceil(x/46))
     for item in input_l:
         filter.insert(item)
     #     print(f"{item} inserted in filter")
@@ -34,7 +25,8 @@ if __name__ == '__main__':
     #         print(f"{item} found in filter right after insertion")
     
     # write in file
-    output_file = '../xdp_code/filters/output.txt'
+    size = "_512_3_8" # 512 bit block, 3 slots/bucket, 8 bit fingerprint
+    output_file = '../xdp_code/filters/morton'+size+ '/output.txt'
     serialized = filter.serialize()
     with open(output_file,'w') as f:
         f.write(serialized)

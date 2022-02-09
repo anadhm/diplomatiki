@@ -8,6 +8,8 @@
 debug.txt
 /xdp_code/filters/output.txt
 /xdp_code/filters/objdump
+/xdp_code/filters/cuckoo/*
 *.o
+*.ll
 /.vscode
 /xdp_code/filters/objdump.txt

@@ -23,11 +23,17 @@ if __name__ == '__main__':
     #     found = filter.query(item)
     #     if found:
     #         print(f"{item} found in filter right after insertion")
-    
+    # foundAll = True
+    # for item in input_l:
+    #     if (not filter.query(item)):
+    #         foundAll = False
+    #         print(f"query failed for item: {item}")
+    item = input_l[0]
+    filter.query(item,verbose=True)
     # write in file
-    size = "_512_3_8" # 512 bit block, 3 slots/bucket, 8 bit fingerprint
-    output_file = '../xdp_code/filters/morton'+size+ '/output.txt'
-    serialized = filter.serialize()
-    with open(output_file,'w') as f:
-        f.write(serialized)
-    print('# of items added: ' + str(counter))
+    # size = "_512_3_8" # 512 bit block, 3 slots/bucket, 8 bit fingerprint
+    # output_file = '../xdp_code/filters/morton'+size+ '/output.txt'
+    # serialized = filter.serialize()
+    # with open(output_file,'w') as f:
+    #     f.write(serialized)
+    # print('# of items added: ' + str(counter))

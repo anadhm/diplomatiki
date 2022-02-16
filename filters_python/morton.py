@@ -9,10 +9,14 @@ HASH_SIZE = 32
 
 def fingerprint(item, fp_size=8):
         # create bitmask according to fp_size
-        bitmask = BitArray(HASH_SIZE)
-        bitmask.set(True,range(HASH_SIZE - 1,HASH_SIZE - fp_size - 1, -1))
+        # bitmask = BitArray(HASH_SIZE)
+        # take first fp_size bits as fingerprint to minimize false positives
+        # bitmask.set(True,range(fp_size))
         # use mmh3 hash and truncate it to fp_size bits to get the fingerprint
-        fp = mmh3.hash(item, signed=False) & bitmask.uint # default hash returns 32-bit
+        fp = mmh3.hash(item, signed=False) #& bitmask.uint # default hash returns 32-bit
+        fp = fp >> (HASH_SIZE-fp_size) # no need for mask for msb's
+        if (fp == 0):
+            fp = 1 # empty fingerprints are reserved to check if FSA has space
         return fill_bits(fp,fp_size) # pad with leading zeros if necessary        
 
 def fill_bits(item,no_bits):
@@ -193,7 +197,7 @@ class MortonFilter:
         return  x % n
     def offset(self,fx):
         # off_range should be a power of two so that modulo can be done with a bitwise and
-        off_range = 16
+        off_range = 32
         # fx is the output of fingerprint() function, so we have to convert it to int
         integer_fp = 0
         if (isinstance(fx, str)):
@@ -202,8 +206,13 @@ class MortonFilter:
             integer_fp = fx.uint
         else:
             integer_fp = fx # should never reach this branch
-        
-        return (self.no_buckets + integer_fp % off_range) | 1
+        offsets = [83, 149, 211, 277, 337, 397, 457, 521, 
+          587, 653, 719, 787, 853, 919, 983, 1051, 1117, 1181, 1249, 1319, 1399, 
+          1459, 
+          1511, 1571, 1637, 1699, 1759, 1823, 1889, 1951, 2017, 1579]
+        offset = offsets[integer_fp % len(offsets)]
+        return offset
+        # return (self.no_buckets + integer_fp % off_range) | 1
     
     def h1(self,item):
         """ Returns the number of (primary) bucket that the item hashes to. """
@@ -212,15 +221,37 @@ class MortonFilter:
         """ Returns the number of (secondary) bucket that the item hashes to. """
         fp = fingerprint(item)
         first_hash = self.h1(item)
+        offset = 0
         n = self.no_blocks * self.no_buckets
-        second_hash = first_hash + ((-1)**(first_hash & 1))*self.offset(fp)
-        return self.map(second_hash,n)
+        if first_hash & 1:
+            offset = self.offset(fp)
+        else:
+            offset = -self.offset(fp)
+        second_hash = first_hash + offset
+        if second_hash > n:
+            return second_hash - n
+        elif second_hash < 0:
+            return second_hash + n
+        else:
+            return second_hash
     
     def h_prime(self,bucket_index,fp):
         """ Calculates the alternate bucket for fp. Eg give bucket_index=h1 and return h2 and vice versa. """
         n = self.no_blocks * self.no_buckets
-        temp = bucket_index + ((-1)**(bucket_index & 1))*self.offset(fp)
-        return self.map(temp,n)
+        offset = 0
+        if bucket_index & 1 :
+            offset = self.offset(fp)
+        else:
+            offset = -self.offset(fp)
+        temp = bucket_index + offset
+        # temp = bucket_index + ((-1)**(bucket_index & 1))*self.offset(fp)
+        # return self.map(temp,n)
+        if temp > n:
+            return temp - n
+        elif temp < 0:
+            return temp + n
+        else:
+            return temp
     
     def insert(self,item,verbose=False):
         fp = fingerprint(item)
@@ -254,7 +285,7 @@ class MortonFilter:
                         if verbose:
                             print(f"Block 2 overflow or bucket capacity for item: {item}, proceed to conflict res")
                             print("++++++++++++")
-                        self.res_conflict(block1,lbi1,lbi2,fp,verbose)
+                        self.res_conflict(block1,lbi1,fp,verbose)
                 else: # insert will be a success in this branch
                     if verbose:
                         print("storing item at h2")
@@ -277,7 +308,8 @@ class MortonFilter:
         bucket_of = (alt_cap == alt_blk.no_slots) # true if there is overflow
         block_of = not alt_blk.has_capacity() # true if there is overflow
         if verbose:
-            print(f"alternate bucket is {alternate_bucket//self.no_buckets}")
+            print(f"alternate g_bucket is {alternate_bucket}")
+            print(f"alternate block is {alternate_bucket//self.no_buckets}")
             print(f"alternate lbi is: {alt_lbi} of capacity {alt_cap}")
             print(f"bucket overflow: {bucket_of}, block overflow: {block_of}")
             print("+-+-+-+-+-+-+-+-")
@@ -338,8 +370,9 @@ class MortonFilter:
             print('error in remove_and_replace')
         return success
     
-    def res_conflict(self,blk1,lbi1,lbi2,fp,verbose=False):
-        max_count = 300 # max times we can try evicting a fingerprint
+    def res_conflict(self,blk1,lbi1,fp,verbose=False):
+        # we want to insert fp in its blk1 and lbi1 position
+        max_count = 8000 # max times we can try evicting a fingerprint
         count = 0 # current count
         evicted = False
         fp = BitArray(fp)
@@ -361,8 +394,9 @@ class MortonFilter:
                 for c in candidates:
                     if (self.check_candidate_bucket(glbi1,c)):
                         evicted = True
-                        self.remove_and_replace(blk1,glbi1,c,fp)
-                    break
+                        glbi2 = self.h_prime(glbi1, c)
+                        self.remove_and_replace(blk1,glbi1,glbi2,c,fp)
+                        break
                 if (not(evicted)): 
                     # all candidate buckets were full, pick a candidate at random
                     # moreover, we need to run the while loop again because the old_fp will need to
@@ -421,7 +455,7 @@ class MortonFilter:
                     blk1 = self.Blocks[glbi2//self.no_buckets] # this is the alternate block
             count+=1
         if (count > 75):
-            print("eviction counter > 75")
+            print(f"eviction counter > 75, counter = {count}")
         if (count == max_count):
             raise Exception('eviction error') # in most cases we haven't created enough blocks for all items
             # no_blocks*no_fingerprints > no_items
@@ -470,8 +504,10 @@ def fill_filter(filename,filter):
 # testing
 if __name__ == '__main__':
     matchAll = True
-    filter = MortonFilter(435)
+    verbose = True
+    filter = MortonFilter(458)
     for i in range(20000):
+        # filter.insert("item"+str(i),verbose=True)
         filter.insert("item"+str(i))
     start = time.time()
     for i in range(20000):
@@ -479,6 +515,7 @@ if __name__ == '__main__':
         matchAll &= match # must be True (no false negatives)
         if (not(match)):
             print("query failed for: item"+str(i))
+            break
     end = time.time()
     print(matchAll)
 

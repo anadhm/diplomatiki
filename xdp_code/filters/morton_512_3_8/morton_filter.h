@@ -125,11 +125,18 @@ static __always_inline __u8 fingerprint(char * data,__u32 len){
 	//TODO: fingerprint size other than 8 bits?
 	return (__u8)(murmurhash(data,len)&0x000000ff);
 }
-static __always_inline __u32 offset(__u8 f){
-	__u32 off_range = 16;
-    __u32 ft = (__u32)f;
-	return (BUCKETS_PER_BLOCK + (ft % off_range) )| 1;
-}
+// static __always_inline __u16 offset(__u8 f){
+// 	// __u32 off_range = 16;
+//     __u16 ft = (__u32)f;
+//     __u16 offset = 0;
+//     static const __u16 offsets[33] = {83, 149, 211, 277, 337, 397, 457, 521, 
+//           587, 653, 719, 787, 853, 919, 983, 1051, 1117, 1181, 1249, 1319, 1399, 
+//           1459, 
+//           1511, 1571, 1637, 1699, 1759, 1823, 1889, 1951, 2017, 1579,'\0'};
+    
+//     // __u16 offset = offsets[ft % 32];
+// 	return offset;
+// }
 
 static __always_inline __u32 h1(char * data,__u32 len){
 	/* Calculates MurmurHash of item and maps it to [0,n-1] */
@@ -137,13 +144,13 @@ static __always_inline __u32 h1(char * data,__u32 len){
 	__u32 h = map(hash,NO_BLOCKS*BUCKETS_PER_BLOCK);
 	return h;
 }
-static __always_inline __u32 h2(char * data,__u32 len){
-	__u8 fp = fingerprint(data,len);
-	__u32 first_hash = h1(data,len);
-	__u32 n = NO_BLOCKS*BUCKETS_PER_BLOCK;
-	__u32 second_hash = first_hash + (integer_exp(-1,first_hash&1))*offset(fp);
-	return map(second_hash,n);
-}
+// static __always_inline __u32 h2(char * data,__u32 len){
+// 	__u8 fp = fingerprint(data,len);
+// 	__u32 first_hash = h1(data,len);
+// 	__u32 n = NO_BLOCKS*BUCKETS_PER_BLOCK;
+// 	__u32 second_hash = first_hash + (integer_exp(-1,first_hash&1))*offset(fp);
+// 	return map(second_hash,n);
+// }
 static __always_inline int read_and_cmp(__u8 *block,__u32 lbi,__u8 fp){
     __u32 bucket_capacities = 0;
 	__u32 i,index;

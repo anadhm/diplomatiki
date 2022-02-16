@@ -5,9 +5,10 @@
 /sample_codes
 /morton_filter_cpp
 /filters_python/__pycache__
+/filters_python/debug
 debug.txt
 /xdp_code/filters/output.txt
-/xdp_code/filters/objdump
+/xdp_code/filters/morton_512_3_8/objdump.txt
 /xdp_code/filters/cuckoo/*
 *.o
 *.ll

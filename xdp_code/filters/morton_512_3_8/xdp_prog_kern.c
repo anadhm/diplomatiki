@@ -32,6 +32,13 @@ struct bpf_map_def SEC("maps") morton_filter = {
 	.value_size  = sizeof(struct Block),
 	.max_entries = NO_BLOCKS,
 };
+
+struct bpf_map_def SEC("maps") offsets = {
+	.type        = BPF_MAP_TYPE_ARRAY,
+	.key_size    = sizeof(__u32), 
+	.value_size  = sizeof(__u32),
+	.max_entries = 32,
+};
 // change to static const char[] from char[], so that string is not saved on the stack
 #define bpf_print(fmt, ...)                    \
 ({                              \
@@ -39,7 +46,25 @@ struct bpf_map_def SEC("maps") morton_filter = {
            bpf_trace_printk(____fmt, sizeof(____fmt),   \
                 ##__VA_ARGS__);         \
 })
-
+static __always_inline __u32 offset(__u8 f){
+	// __u32 off_range = 16;
+    // __u16 ft = (__u32)f;
+    __u32 *off;
+	__u32 mod = (__u32)f % 32 ;
+	/* These are too many values to fit into BPF stack so we need to access them from a BPF map */
+	off = bpf_map_lookup_elem(&offsets,&mod);
+	if (!off) {
+		return -1;
+	}
+	return *off;
+    // static const __u16 offsets[33] = {83, 149, 211, 277, 337, 397, 457, 521, 
+    //       587, 653, 719, 787, 853, 919, 983, 1051, 1117, 1181, 1249, 1319, 1399, 
+    //       1459, 
+    //       1511, 1571, 1637, 1699, 1759, 1823, 1889, 1951, 2017, 1579,'\0'};
+    
+    // __u16 offset = offsets[ft % 32];
+	
+}
 
 SEC("xdp_morton_filter")
 int xdp_morton_filter_func(struct xdp_md *ctx)
@@ -112,7 +137,6 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	}
 	
 	struct Block * block;
-	//char name[10]="10.11.1.1";
 	
 	/* we now have item and can calculate the hashes
 	to test if it is in the map (according to morton_filter*/
@@ -211,17 +235,21 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	__u32 n = NO_BLOCKS*BUCKETS_PER_BLOCK;
 	
 	__u32 hash1 = h1 % n;
-	__u32 mask = 0;
-	for (int i = 0;i<FINGERPRINT_SIZE;i++){
-		mask += (1 << i);
-	}
-	__u8 fp = h1&mask;
+	// __u32 mask = 0;
+	// for (int i = 0;i<FINGERPRINT_SIZE;i++){
+	// 	mask += (1 << (31-i));
+	// }
+	/* Take 1st byte of hash as fingerprint instead of last
+		to minimize false positives. */
+	h1 = (h1 >> 24);
+	__u8 fp = (__u8)h1;
 	// bpf_print("fp:%u",fp);
 	/* block no */
 	__u32 glbi1 = hash1;
+	
 	__u32 block1 = glbi1/BUCKETS_PER_BLOCK; //should be integer division
 	// __u32 block1 = 0;
-	
+	// bpf_print("blk1:%u",block1);
 
 	block=bpf_map_lookup_elem(&morton_filter,&block1);
 	if (!block){
@@ -282,7 +310,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	//bpf_print("item0:%u\n",block->bitarray[0]);
 	item = block->bitarray[(index/FINGERPRINT_SIZE)];
 	__u8 mod = (FSA_ARRAY_END + lbi1*FCA_BITS) % FINGERPRINT_SIZE;
-	//bpf_print("lbi1:%u,index:%u,mod:%u",lbi1,index/8,mod);
+	// bpf_print("lbi1:%u,index:%u,mod:%u",lbi1,index/8,mod);
 	cap = (unsigned int)((item >> (6 - mod)) & 0x03);
 	//bucket_capacities = 0;
 	__u8 buc = 0;
@@ -313,7 +341,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 			}
 		}
 	}
-	bpf_print("found:%u",found);
+	// bpf_print("found:%u",found);
 	//bpf_print("found:%u, fp=%u",found,fp);
 	if (found || !ota_bit){
 		if (found) {
@@ -326,8 +354,17 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	}
 	else {
 		__u16 in = 0;
-		__u32 hash2 = hash1 + (integer_exp(-1, hash1&1))*offset(fp);
-		__u32 glbi2 = hash2 % n;
+		// __u32 hash2 = hash1 + (integer_exp(-1, hash1&1))*offset(fp);
+		__u16 off = offset(fp);
+		if (off < 0) {
+			bpf_print("error loading offset\n");
+			return XDP_DROP;
+		}
+		off = (hash1 & 1) ? off : -off;
+		__u32 hash2 = hash1 + (__u32)off;
+		if (hash2 > n) hash2 = hash2 - n;
+		else if (hash2 < 0) hash2 = hash2 + n;
+		__u32 glbi2 = hash2;
 		__u32 block2 = glbi2/BUCKETS_PER_BLOCK;
 		
 		block = bpf_map_lookup_elem(&morton_filter,&block2);

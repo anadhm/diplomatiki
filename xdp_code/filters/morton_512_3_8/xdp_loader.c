@@ -80,9 +80,9 @@ static const struct option_wrapper long_options[] = {
 #endif
 
 const char *pin_basedir =  "/sys/fs/bpf";
-const char *map_name    =  "xdp_stats_map";
+//const char *map_name    =  "xdp_stats_map";
 const char *filter_name =  "morton_filter";
-
+const char *offsets_name = "offsets";
 void strToBitArray(char *source,int srclen, __u8 *result,int rlen){
 	/* Takes a string as input and retuns a bitarray in result.
 	Result has more than one __u32 elements so be careful with that.
@@ -123,9 +123,15 @@ int pin_maps_in_bpf_object(struct bpf_object *bpf_obj, const char *subdir)
 	}
 
 	len = snprintf(map_filename, PATH_MAX, "%s/%s/%s",
-		       pin_basedir, subdir, map_name);
+		       pin_basedir, subdir, filter_name);
 	if (len < 0) {
-		fprintf(stderr, "ERR: creating map_name\n");
+		fprintf(stderr, "ERR: creating filter_name\n");
+		return EXIT_FAIL_OPTION;
+	}
+	len = snprintf(map_filename, PATH_MAX, "%s/%s/%s",
+		       pin_basedir, subdir, offsets_name);
+	if (len < 0) {
+		fprintf(stderr, "ERR: creating offsets_name\n");
 		return EXIT_FAIL_OPTION;
 	}
 
@@ -207,6 +213,7 @@ int main(int argc, char **argv)
 	char pin_dir[PATH_MAX];
 	int filter_map_fd;
 	int len;
+	int offsets_fd;
 	
 	len = snprintf(pin_dir, PATH_MAX, "%s/%s", pin_basedir, cfg.ifname);
 	if (len < 0) {
@@ -235,6 +242,9 @@ int main(int argc, char **argv)
 		       info.key_size, info.value_size, info.max_entries
 		       );
 	}
+	
+	
+	
 
 	FILE *f;
 	/* Open the file with the filter and load it in the map. */
@@ -271,7 +281,45 @@ int main(int argc, char **argv)
 		no_block++;
 		}
 	}
+	offsets_fd = open_bpf_map_file(pin_dir, offsets_name, &info);
+	/* Check map info */
+	map_expect.key_size = sizeof(__u32);
+	map_expect.value_size = sizeof(__u32); // 512 bits
+	map_expect.max_entries = 32;
 
+	err = check_map_fd_info(&info, &map_expect);
+	if (err) {
+		fprintf(stderr, "ERR: map via FD not compatible\n");
+		return err;
+	}
+	if (verbose) {
+		printf("\nCollecting stats from BPF map\n");
+		printf(" - BPF map (bpf_map_type:%d) id:%d name:%s"
+		       " key_size:%d value_size:%d max_entries:%d\n",
+		       info.type, info.id, info.name,
+		       info.key_size, info.value_size, info.max_entries
+		       );
+	}
+
+	if (offsets_fd < 0){
+		return EXIT_FAIL_BPF;
+	}
+	__u32 offsets[] = {83, 149, 211, 277, 337, 397, 457, 521, 
+          587, 653, 719, 787, 853, 919, 983, 1051, 1117, 1181, 1249, 1319, 1399, 
+          1459, 
+          1511, 1571, 1637, 1699, 1759, 1823, 1889, 1951, 2017, 1579};
+	__u32 res;
+	for (__u32 i=0;i<32;i++){
+		/* Create the map with offsets that we need in kernel side */
+		/* That many values can't fit in BPF stack space */
+		__u32 value = offsets[i];
+		res = bpf_map_update_elem(offsets_fd, &i, &value, BPF_ANY);
+		if (res != 0) {
+    			fprintf(stderr, "bpf_map_update_elem error %d %s \n", errno, strerror(errno));
+    			return 1;
+  			}
+	}
+    
 	fclose(f);
 	return EXIT_OK;
 }

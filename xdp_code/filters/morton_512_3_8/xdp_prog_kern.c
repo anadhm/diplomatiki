@@ -241,9 +241,14 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	// }
 	/* Take 1st byte of hash as fingerprint instead of last
 		to minimize false positives. */
+
+	// bpf_print("primary hash:%u",h1);
 	h1 = (h1 >> 24);
+
+	// bpf_print("primary hash after shift:%u",h1);
 	__u8 fp = (__u8)h1;
-	// bpf_print("fp:%u",fp);
+	if (!fp) fp = 1; /* fp=0 is reserved for EMPTY fingerprints */
+	bpf_print("fp:%u",fp);
 	/* block no */
 	__u32 glbi1 = hash1;
 	

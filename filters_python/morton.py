@@ -3,17 +3,11 @@ import mmh3
 from bitstring import BitArray, BitStream
 import math,random
 
-# TODO: see if we can have a variable number of (logical) buckets per block later
-# no_buckets = 64
 HASH_SIZE = 32
 
 def fingerprint(item, fp_size=8):
-        # create bitmask according to fp_size
-        # bitmask = BitArray(HASH_SIZE)
         # take first fp_size bits as fingerprint to minimize false positives
-        # bitmask.set(True,range(fp_size))
-        # use mmh3 hash and truncate it to fp_size bits to get the fingerprint
-        fp = mmh3.hash(item, signed=False) #& bitmask.uint # default hash returns 32-bit
+        fp = mmh3.hash(item, signed=False)  # default hash returns 32-bit
         fp = fp >> (HASH_SIZE-fp_size) # no need for mask for msb's
         if (fp == 0):
             fp = 1 # empty fingerprints are reserved to check if FSA has space
@@ -176,7 +170,13 @@ class MortonFilter:
     # i.e. how many buckets and of what size
     # TODO: support more filter configurations than the default: 3-slot buckets with 8 bit fingerprints
     # TODO: add checks for valid sizes in block creation
-    def __init__(self,no_blocks,block_size=512,fingerprint_size=8, no_buckets=64):
+    def __init__(self,no_blocks,
+    block_size=512,
+    fingerprint_size=8, 
+    no_buckets=64,
+    ota_bits=16,
+    no_slots=3,
+    no_fingerprints=46):
         self.no_blocks = no_blocks
         self.block_size = block_size
         self.fingerprint_size = fingerprint_size
@@ -184,7 +184,12 @@ class MortonFilter:
         self.Blocks = [] # filter is a list of Blocks
         #initialize the blocks
         for i in range(no_blocks):
-            blk = Block(i,block_size=512,no_buckets=no_buckets) # go with default numbers for now
+            blk = Block(i,block_size=block_size,
+            no_buckets=no_buckets,
+            overflow_bits=ota_bits,
+            fingerprint_size=fingerprint_size,
+            no_slots=no_slots,
+            no_fingerprints=no_fingerprints) # go with default numbers for now
             self.Blocks.append(blk)
    
    
@@ -197,7 +202,7 @@ class MortonFilter:
         return  x % n
     def offset(self,fx):
         # off_range should be a power of two so that modulo can be done with a bitwise and
-        off_range = 32
+        # off_range = 32
         # fx is the output of fingerprint() function, so we have to convert it to int
         integer_fp = 0
         if (isinstance(fx, str)):
@@ -206,6 +211,8 @@ class MortonFilter:
             integer_fp = fx.uint
         else:
             integer_fp = fx # should never reach this branch
+        # this is the table_based alternate bucket method, 
+        # C++ implementation uses function_based which is a bit different
         offsets = [83, 149, 211, 277, 337, 397, 457, 521, 
           587, 653, 719, 787, 853, 919, 983, 1051, 1117, 1181, 1249, 1319, 1399, 
           1459, 
@@ -219,8 +226,9 @@ class MortonFilter:
         return self.map(mmh3.hash(item,signed=False),self.no_buckets * self.no_blocks)
     def h2(self,item):
         """ Returns the number of (secondary) bucket that the item hashes to. """
-        fp = fingerprint(item)
+        fp = fingerprint(item,self.fingerprint_size)
         first_hash = self.h1(item)
+        # use the H' method, because H_2 from the paper doesn't play well
         offset = 0
         n = self.no_blocks * self.no_buckets
         if first_hash & 1:
@@ -228,7 +236,7 @@ class MortonFilter:
         else:
             offset = -self.offset(fp)
         second_hash = first_hash + offset
-        if second_hash > n:
+        if second_hash >= n:
             return second_hash - n
         elif second_hash < 0:
             return second_hash + n
@@ -254,7 +262,7 @@ class MortonFilter:
             return temp
     
     def insert(self,item,verbose=False):
-        fp = fingerprint(item)
+        fp = fingerprint(item,self.fingerprint_size)
         if (self.query(item)):
             if verbose:
                 print(f"item: {item} already in filter")
@@ -339,7 +347,6 @@ class MortonFilter:
             # the old_fp, but instead use it in the calling function in the while loop
             alt_blk.table_simple_store(alt_lbi,old_fp)
         # normally we'd use the code for the delete function
-        # TODO: implement delete function (maybe)
         # for now we copy code from Block.read_and_cmp to find the old_fp in the old_blk and overwrite it with new_fp
         offset = 0
         bits = old_blk.fca_bits
@@ -462,7 +469,7 @@ class MortonFilter:
         return
 
     def query(self,item,verbose=False):
-        fp = fingerprint(item)
+        fp = fingerprint(item,self.fingerprint_size)
         glbi1 = self.h1(item)
         block1 = self.Blocks[glbi1//self.no_buckets]
         lbi1 = glbi1 % self.no_buckets
@@ -482,7 +489,7 @@ class MortonFilter:
                 print(f"fp = {(int(fp,2))}, block2 = {glbi2//self.no_buckets} lbi2 = {lbi2}")
             match = block2.read_and_cmp(lbi2, fp, verbose) 
             if (match and verbose):
-                print(f"found fp = {(int(fp,2))} at block {glbi1//self.no_buckets} and bucket {lbi1}")    
+                print(f"found fp = {(int(fp,2))} at block {glbi2//self.no_buckets} and bucket {lbi2}")    
             return match
     
     def printFilter(self):

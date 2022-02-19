@@ -22,7 +22,7 @@
 	key = no of block
 	value = block
 	so key_size = u32
-	value_size = size_of_block_in_bits
+	value_size = size_of_block_in_bytes
 	max_entries = no of blocks
  */
  // map_fd[0]
@@ -243,6 +243,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 		to minimize false positives. */
 
 	// bpf_print("primary hash:%u",h1);
+	/* h1 = h1 >> (32 - fp_size)  -> verifier wouldn't allow this */
 	h1 = (h1 >> 24);
 
 	// bpf_print("primary hash after shift:%u",h1);
@@ -291,13 +292,13 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 				bpf_print("drop in fca 291");
 				return XDP_DROP;
 			}
-			__u8 item;
-			item = block->bitarray[index/FINGERPRINT_SIZE];
-			// item = 0;
 			temp_cap = 0;
-			__u8 mod = index%FINGERPRINT_SIZE;
-			/* The following is specific to a __u8 bitarray and fca_bits = 2 */
-			temp_cap =(unsigned int)((item >> (6 - mod)) & 0x03);
+			#pragma unroll
+			for (__u8 j=0;j<FCA_BITS;j++){
+				__u8 bit = TestBit(block->bitarray, index + j);
+				temp_cap += (bit << (FCA_BITS - 1 - j));
+			}
+			
 			// bpf_print("index:%u",index);
 			// bpf_print("item:%u",item);
 			// bpf_print("tcap:%u",temp_cap);
@@ -306,19 +307,17 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 		}
 	}
 	
-	__u8 item;
 	// boundary checks
 	index = FSA_ARRAY_END + lbi1*FCA_BITS;
 	if ((index/FINGERPRINT_SIZE) >= (BLOCKSIZE_BITS/FINGERPRINT_SIZE)){
 		bpf_print("drop in index 313");
 		return XDP_DROP;
 	}
-	//bpf_print("item0:%u\n",block->bitarray[0]);
-	item = block->bitarray[(index/FINGERPRINT_SIZE)];
-	__u8 mod = (FSA_ARRAY_END + lbi1*FCA_BITS) % FINGERPRINT_SIZE;
-	// bpf_print("lbi1:%u,index:%u,mod:%u",lbi1,index/8,mod);
-	cap = (unsigned int)((item >> (6 - mod)) & 0x03);
-	//bucket_capacities = 0;
+	#pragma unroll
+	for (__u8 j=0;j<FCA_BITS;j++){
+		__u8 bit = TestBit(block->bitarray, index + j);
+		cap += (bit << (FCA_BITS - 1 - j));
+	}
 	__u8 buc = 0;
 	#pragma unroll
 	for (buc = 0;buc<SLOTS;buc++){
@@ -371,16 +370,16 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 			bpf_print("error loading offset\n");
 			return XDP_DROP;
 		}
-		int flag = 0;
+		// int flag = 0;
 		int int_off = (hash1 & 1) ? off : (-1)*off;
 		int hash2 = (int)hash1 + int_off;
 		if (hash2 > (int)n) {
 			hash2 = hash2 - (int)n;
-			flag = 1;
+			// flag = 1;
 		}
 		else if (hash2 < 0) {
 			hash2 = hash2 + (int)n;
-			flag = 2;
+			// flag = 2;
 		}
 		__u32 glbi2 = hash2;
 		__u32 block2 = glbi2/BUCKETS_PER_BLOCK;
@@ -411,12 +410,11 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 					bpf_print("drop in fca 395");
 					return XDP_DROP;
 				}
-				__u8 item;
-				item = block->bitarray[in/FINGERPRINT_SIZE];
-				
-				temp_cap = 0;
-				__u8 mod = in % FINGERPRINT_SIZE;
-				temp_cap = (unsigned int)(item >> (6 - mod)) & 0x03;
+				#pragma unroll
+				for (__u8 j=0;j<FCA_BITS;j++){
+					__u8 bit = TestBit(block->bitarray, in + j);
+					temp_cap += (bit << (FCA_BITS - 1 - j));
+				}
 				bucket_capacities += temp_cap;
 			}
 		}
@@ -426,12 +424,11 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 			bpf_print("drop in bound check 410");
 			return XDP_DROP;
 		}
-		__u8 item;
-		item = block->bitarray[(in/FINGERPRINT_SIZE)];
-		// item = 0;
-		__u8 mod = in % FINGERPRINT_SIZE;
-		cap = (item >> (6 - mod)) & 0x03;
-
+		#pragma unroll
+		for (__u8 j=0;j<FCA_BITS;j++){
+			__u8 bit = TestBit(block->bitarray, in + j);
+			cap += (bit << (FCA_BITS - 1 - j));
+		}
 		__u8 cand_fp = 0;
 		__u8 buc = 0;
 		#pragma unroll

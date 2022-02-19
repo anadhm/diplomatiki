@@ -36,9 +36,9 @@ static const char *default_filename = "xdp_prog_kern.o";
 // Due order of operation wrap 'k' in parentheses in case it
 // is passed as an equation, e.g. i + 1, otherwise the first
 // part evaluates to "A[i + (1/32)]" not "A[(i + 1)/32]"
-#define SetBit(A,k)     ( A[(k)/16] |= (1 << (15 - (k)%16)) )
-#define ClearBit(A,k)   ( A[(k)/16] &= ~(1 << (15 - (k)%16)) )
-#define TestBit(A,k)    ( A[(k)/16] & (1 << (15 - (k)%16)) )
+#define SetBit(A,k)     ( A[(k)/8] |= (1 << (7 - (k)%8)) )
+#define ClearBit(A,k)   ( A[(k)/8] &= ~(1 << (7 - (k)%8)) )
+#define TestBit(A,k)    ( A[(k)/8] & (1 << (7 - (k)%8)) )
 
 static const struct option_wrapper long_options[] = {
 
@@ -83,7 +83,7 @@ const char *pin_basedir =  "/sys/fs/bpf";
 //const char *map_name    =  "xdp_stats_map";
 const char *filter_name =  "morton_filter";
 const char *offsets_name = "offsets";
-void strToBitArray(char *source,int srclen, __u16 *result,int rlen){
+void strToBitArray(char *source,int srclen, __u8 *result,int rlen){
 	/* Takes a string as input and retuns a bitarray in result.
 	Result has more than one __u32 elements so be careful with that.
 	Manipulate this bitarray using the macros {Set,Clear,Test}Bit at start. */
@@ -253,10 +253,10 @@ int main(int argc, char **argv)
 	int index =0; 
 	int processed_chars = 0;
 	uint no_block = 0;
-	uint bitlen = BLOCKSIZE_BITS/FINGERPRINT_SIZE; // how many __u16 we need to fit 1 block in a u16 array
+	uint bitlen = BLOCKSIZE_BITS/FINGERPRINT_SIZE; // how many __u8 we need to fit 1 block in a u32 array
 	__u32 c;
 	__u32 result = 0;
-	__u16 bitarray[bitlen]; // __u16 = 16 bits, whole bitarray = 1 block
+	__u8 bitarray[bitlen]; // __u8 = 8 bits, whole bitarray = 1 block
 	char char_array[BLOCKSIZE_BITS + 1]; // 1 char from file = 1 bit in filter, plus 1 character for EOL
 	/* Read chars from file, and when we have read BLOCKSIZE no of chars
 	load them as bitarray in bitarray. */

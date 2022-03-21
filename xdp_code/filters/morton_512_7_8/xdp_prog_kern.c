@@ -16,7 +16,7 @@
 #include "dns.h"
 #include "morton_filter.h" /* defines helpers for filter */
 
-
+#define BITARRAY_SIZE 64 // temporary placeholder for BLOCKSIZE_BITS/8
 /* 
 	morton_filter_map is constructed as follows:
 	key = no of block
@@ -235,10 +235,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	__u32 n = NO_BLOCKS*BUCKETS_PER_BLOCK;
 	
 	__u32 hash1 = h1 % n;
-	// __u32 mask = 0;
-	// for (int i = 0;i<FINGERPRINT_SIZE;i++){
-	// 	mask += (1 << (31-i));
-	// }
+	
 	/* Take 1st byte of hash as fingerprint instead of last
 		to minimize false positives. */
 
@@ -249,13 +246,13 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	// bpf_print("primary hash after shift:%u",h1);
 	__u8 fp = (__u8)h1;
 	if (fp == 0) fp = (__u8)1; /* fp=0 is reserved for EMPTY fingerprints */
-	// bpf_print("fp:%u",fp);
+	bpf_print("fp:%u",fp);
 	/* block no */
 	__u32 glbi1 = hash1;
 	
 	__u32 block1 = glbi1/BUCKETS_PER_BLOCK; //should be integer division
 	// __u32 block1 = 0;
-	// bpf_print("blk1:%u",block1);
+	bpf_print("blk1:%u",block1);
 
 	block=bpf_map_lookup_elem(&morton_filter,&block1);
 	if (!block){
@@ -269,14 +266,20 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	*/
 	
 	/* local bucket index */
-	__u32 lbi1 = glbi1%BUCKETS_PER_BLOCK;
+	__u16 lbi1 = glbi1%BUCKETS_PER_BLOCK;
+	lbi1 &= 31;
 	unsigned short int ota_index = lbi1%OTA_BITS;
-	unsigned short int ota_bit = TestBit(block->bitarray, FSA_ARRAY_END+FCA_ARRAY_END+ota_index);
+	__u8 ota_bit = 0;
+	__u16 long_ota_index = (FSA_ARRAY_END + FCA_ARRAY_END + ota_index-1)&BLOCKSIZE_BITS;
+	if ((long_ota_index/8) < 64){
+		ota_bit = Bool(TestBit(block->bitarray, long_ota_index&511));
+	}
+	bpf_print("ota_index: %u, ota_bit: %u",ota_index,ota_bit);
 	short unsigned int found = 0;
 
 	/* search in block */
 	__u16 cap = 0;
-	__u8 bucket_capacities = 0;
+	__u16 bucket_capacities = 0;
 	__u16 index = 0;
 	
 	__u8 cand_fp=0;
@@ -295,8 +298,17 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 			temp_cap = 0;
 			#pragma unroll
 			for (__u8 j=0;j<FCA_BITS;j++){
-				__u8 bit = TestBit(block->bitarray, index + j);
-				temp_cap += (bit << (FCA_BITS - 1 - j));
+				if ((index + j)/FINGERPRINT_SIZE < BLOCKSIZE_BITS/FINGERPRINT_SIZE){
+					__u8 bit = Bool(TestBit(block->bitarray, index + j));
+					// __u8 bit = 0;
+					temp_cap += (bit << (FCA_BITS - 1 - j));
+					// switch (j) {
+					// case 0: temp_cap += (bit << 2);
+					// case 1:	temp_cap += (bit << 1);
+					// case 2:	temp_cap += (bit << 0);
+					// default: continue;
+					// }
+				}
 			}
 			
 			// bpf_print("index:%u",index);
@@ -308,43 +320,61 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	}
 	
 	// boundary checks
-	index = FSA_ARRAY_END + lbi1*FCA_BITS;
+	index = FSA_ARRAY_END + (lbi1*FCA_BITS);
+	index &= 511;
+	bpf_print("index: %u", index);
 	if ((index/FINGERPRINT_SIZE) >= (BLOCKSIZE_BITS/FINGERPRINT_SIZE)){
 		bpf_print("drop in index 313");
 		return XDP_DROP;
 	}
 	#pragma unroll
 	for (__u8 j=0;j<FCA_BITS;j++){
-		__u8 bit = TestBit(block->bitarray, index + j);
-		cap += (bit << (FCA_BITS - 1 - j));
+		__u8 temp = (index + j);
+		temp &= 511;
+		if (temp ){
+			// necessary boundary check to stop verifier complaining
+			__u8 bit = 0;
+				// bit = Bool(TestBit(block->bitarray, temp));
+				__u8 temp_eight = temp/8;
+				temp_eight &= 63;
+				// bpf_print("%u",temp_eight);
+				if (temp_eight > 63){
+					break;
+				}
+				bit = Bool( (block->bitarray[temp_eight] & (1 << (7-(temp%8)))));
+				// __u8 bit = 0;
+			cap += (bit << (FCA_BITS - 1 - j));
+		}
 	}
 	__u8 buc = 0;
-	#pragma unroll
+	// #pragma unroll
 	for (buc = 0;buc<SLOTS;buc++){
-		// buc <3, since we have 3 slots per bucket
+		// buc <7, since we have 7 slots per bucket
 		// boundary checks
-		// bpf_print("bcaps:%u,cap=%u",bucket_capacities,cap);
+		bpf_print("bcaps:%u,cap=%u",bucket_capacities,cap);
 		if (bucket_capacities + buc > NO_FINGERPRINTS){
 				// bpf_print("drop in index check 329");
 				// bpf_print("bucket caps:%u, buc:%u, cap:%u",bucket_capacities,buc,cap);
 				// bpf_print("mod:%u", mod);
 				break;
 			}
+		index = 0;
 		if (buc < cap){
 			index = bucket_capacities + buc;
 			
 			if ((index < (BLOCKSIZE_BITS/FINGERPRINT_SIZE)) && (index >= 0)){
 				// verifier rejects program without print statement
 				// see issue: https://www.spinics.net/lists/bpf/msg45069.html
-				// bpf_print("found index:%u",index);
+				bpf_print("found index:%u",index);
+				// cand_fp = 0;
 				cand_fp = block->bitarray[index];
-				// bpf_print("cand_fp:%u",cand_fp);
+				bpf_print("cand_fp:%u",cand_fp);
 				}
 			else {
 				bpf_print("drop in search 343");
 				return XDP_DROP;
 			}
-			// bpf_print("cf:%u",cand_fp);
+			bpf_print("cf:%u",cand_fp);
 			if (cand_fp == fp){
 				found = 1;
 				break;
@@ -381,7 +411,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 			hash2 = hash2 + (int)n;
 			// flag = 2;
 		}
-		__u32 glbi2 = hash2;
+		__u32 glbi2 = (__u32)hash2;
 		__u32 block2 = glbi2/BUCKETS_PER_BLOCK;
 		
 		block = bpf_map_lookup_elem(&morton_filter,&block2);
@@ -395,12 +425,13 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 			// bpf_print("blk2:%u",block2);
 			return XDP_DROP; // key was not found
 		}
-		__u32 lbi2 = glbi2%BUCKETS_PER_BLOCK;
+		__u16 lbi2 = (__u16)glbi2%BUCKETS_PER_BLOCK;
+		lbi2 &= 31;
 		found = 0;
 		__u16 temp_cap = 0;
 		bucket_capacities = 0;
 		cap = 0;
-		#pragma unroll
+		// #pragma unroll
 		for (__u8 i=0;i<BUCKETS_PER_BLOCK;i++){
 			if (i<lbi2) {/* fca bucket index in the block */
 				in = FSA_ARRAY_END + i*FCA_BITS;
@@ -410,35 +441,52 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 					bpf_print("drop in fca 395");
 					return XDP_DROP;
 				}
+				temp_cap = 0;
 				#pragma unroll
 				for (__u8 j=0;j<FCA_BITS;j++){
-					__u8 bit = TestBit(block->bitarray, in + j);
-					temp_cap += (bit << (FCA_BITS - 1 - j));
+					if ((in + j)/FINGERPRINT_SIZE < BLOCKSIZE_BITS/FINGERPRINT_SIZE){
+						__u8 bit = Bool(TestBit(block->bitarray, in + j));
+						// __u8 bit = 0;
+						temp_cap += (bit << (FCA_BITS - 1 - j));
+						// switch (j) {
+						// case 0: temp_cap += (bit << 2);
+						// case 1:	temp_cap += (bit << 1);
+						// case 2:	temp_cap += (bit << 0);
+						// default: continue;
+						// }
+					}
 				}
+				bpf_print("temp_cap: %u",temp_cap);
 				bucket_capacities += temp_cap;
 			}
 		}
 		// boundary checks
 		in = FSA_ARRAY_END + lbi2*FCA_BITS;
-		if ((FSA_ARRAY_END + lbi2*FCA_BITS)/FINGERPRINT_SIZE >= BLOCKSIZE_BITS/FINGERPRINT_SIZE){
+		if (in >= BLOCKSIZE_BITS){
 			bpf_print("drop in bound check 410");
 			return XDP_DROP;
 		}
-		#pragma unroll
+		// #pragma unroll
 		for (__u8 j=0;j<FCA_BITS;j++){
-			__u8 bit = TestBit(block->bitarray, in + j);
-			cap += (bit << (FCA_BITS - 1 - j));
+			__u16 temp = (in + j) & 511;
+			if (temp/8 < 64){
+				// necessary boundary check to stop verifier complaining
+				__u8 bit = 0;
+					// bit = Bool(TestBit(block->bitarray, temp)); // 504 = 512 -8, 504/8 = 63 = max_value that gets verifier happy
+				// __u8 bit = 0;
+				cap += (bit << (FCA_BITS - 1 - j));
+			}
 		}
 		__u8 cand_fp = 0;
 		__u8 buc = 0;
-		#pragma unroll
+		// #pragma unroll
 		for (buc = 0;buc<SLOTS;buc++){
-			// buc <3, since we have 3 slots per bucket
+			// buc <7, since we have 7 slots per bucket
 			// boundary checks
-			// bpf_print("bacps:%u,cap=%u",bucket_capacities,cap);
-			if (bucket_capacities + buc >= NO_FINGERPRINTS){
+			bpf_print("bacps:%u,cap=%u",bucket_capacities,cap);
+			if (bucket_capacities + buc > NO_FINGERPRINTS){
 					bpf_print("drop in index check 427");
-					return XDP_DROP;
+					break;
 				}
 			if (buc < cap){
 				__u8 in = bucket_capacities + buc;
@@ -446,7 +494,8 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 				if ((in < (BLOCKSIZE_BITS/FINGERPRINT_SIZE)) && (in >= 0)){
 					// verifier rejects program without print statement
 					// see issue: https://www.spinics.net/lists/bpf/msg45069.html
-					// bpf_print("found index:%u",in);
+					bpf_print("found index:%u",in);
+					// cand_fp = 0;
 					cand_fp = block->bitarray[in];
 					// ;;
 					}
@@ -462,6 +511,7 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 				}
 			}
 		}
+		// if (cap || bucket_capacities) found = 0;
 		if (found) {
 			//bpf_print("success!\n");
 			return XDP_PASS;

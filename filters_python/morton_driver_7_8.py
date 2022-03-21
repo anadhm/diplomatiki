@@ -6,7 +6,7 @@ if __name__ == '__main__':
     domain_form = chr(len("example")) + "example" + chr(3) + "com"
     input_l = []
     counter = 0
-    with open(names_file,"r") as f:
+    with open("/home/anastasia/diplomatiki/filters_python/"+names_file,"r") as f:
         lines = f.readlines()
         for name_r in lines:
             name = name_r.rstrip()
@@ -33,6 +33,7 @@ if __name__ == '__main__':
         fingerprint_size=filter_attr["fingerprint_size"],
         no_buckets=filter_attr["no_buckets"],
         ota_bits=filter_attr["ota_bits"],
+        no_slots=filter_attr["no_slots"],
         no_fingerprints=filter_attr["no_fingerprints"])
     for item in input_l:
         filter.insert(item)
@@ -47,6 +48,10 @@ if __name__ == '__main__':
     #         print(f"query failed for item: {item}")
 
     # item = chr(len("mercator")) + "mercator" + domain_form
+    # filter.query(item,verbose=True)
+    
+
+    # item = chr(len("gramateia")) + "gramateia" + domain_form
     # filter.query(item,verbose=True)
     
     # write in file

@@ -3,7 +3,7 @@
 
 // TODO: find way to change these default values
 #define BLOCKSIZE_BITS 512
-#define NO_ITEMS 8303 // no if items in ntua_names
+#define NO_ITEMS 1657995 // no if items in ntua_names
 static const __u32 BUCKETS_PER_BLOCK = 64; //logical buckets
 static const __u32 OTA_BITS = 16;
 static const __u32 FCA_BITS = 2; //as in python code
@@ -12,7 +12,7 @@ static const double LOAD_FACTOR = 0.95;
 static const __u32 LOADF_ITEMS = NO_ITEMS/LOAD_FACTOR;
 static const int expr = LOADF_ITEMS % NO_FINGERPRINTS;
 // static const __u32 NO_BLOCKS = expr > 0 ? expr + 1: expr;
-static const __u32 NO_BLOCKS = 190;
+static const __u32 NO_BLOCKS = 37941;
 static const __u32 FINGERPRINT_SIZE = 8;
 static const __u8 SLOTS = 3;
 static const __u32 FSA_ARRAY_END = 368; // fsa has this many bits

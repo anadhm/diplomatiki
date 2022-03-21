@@ -2,6 +2,7 @@
 /debug
 /papers
 /kernels
+/names
 /sample_codes
 /morton_filter_cpp
 /filters_python/__pycache__

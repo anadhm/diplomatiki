@@ -2,19 +2,40 @@ from morton import *
 import time,os,sys,math
 
 if __name__ == '__main__':
-    names_file = "ntua_names"
+    ntua_file = "../names/ntua_names"
     domain_form = chr(len("example")) + "example" + chr(3) + "com"
     input_l = []
-    counter = 0
-    with open(names_file,"r") as f:
+    with open(ntua_file,"r") as f:
         lines = f.readlines()
         for name_r in lines:
             name = name_r.rstrip()
             item = chr(len(name)) + name + domain_form
             input_l.append(item)
-            counter = counter + 1
     # if we want 0.95 load factor, then we need x*0.95 = len(input)
     # -> x = len(input)/0.95 -> blocks = x//46 +1 
+    se_names = "../names/se_names"
+    with open(se_names) as f:
+        lines = f.readlines()
+        for line in lines:
+            tokens = line.rstrip().split(".")
+            item = ""
+            for token in tokens:
+                item = item + chr(len(token)) + token
+            # print(item)
+            input_l.append(item)
+    
+    nu_names = "../names/nu_names"
+    with open(nu_names) as f:
+        lines = f.readlines()
+        for line in lines:
+            tokens = line.rstrip().split(".")
+            item = ""
+            for token in tokens:
+                item = item + chr(len(token)) + token
+            # print(item)
+            input_l.append(item)
+            
+
     x = len(input_l)/0.95
 
     # 512_3_8
@@ -56,4 +77,3 @@ if __name__ == '__main__':
     serialized = filter.serialize()
     with open(output_file,'w') as f:
         f.write(serialized)
-    # print('# of items added: ' + str(counter))

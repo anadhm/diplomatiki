@@ -4,23 +4,23 @@
 // TODO: find way to change these default values
 #define BLOCKSIZE_BITS 512
 #define NO_ITEMS 8303 // no if items in ntua_names
-static const __u32 BUCKETS_PER_BLOCK = 21; //logical buckets
-static const __u32 OTA_BITS = 17;
-static const __u32 FCA_BITS = 3; //as in python code
+static const __u8 BUCKETS_PER_BLOCK = 21; //logical buckets
+static const __u8 OTA_BITS = 17;
+static const __u8 FCA_BITS = 3; //as in python code
 #define NO_FINGERPRINTS 54
 static const double LOAD_FACTOR = 0.95;
-static const __u32 LOADF_ITEMS = NO_ITEMS/LOAD_FACTOR;
-static const int expr = LOADF_ITEMS % NO_FINGERPRINTS;
+// static const __u32 LOADF_ITEMS = NO_ITEMS/LOAD_FACTOR;
+// static const int expr = LOADF_ITEMS % NO_FINGERPRINTS;
 // static const __u32 NO_BLOCKS = expr > 0 ? expr + 1: expr;
-static const __u32 NO_BLOCKS = 162;
-static const __u32 FINGERPRINT_SIZE = 8;
+static const __u16 NO_BLOCKS = 162;
+#define FINGERPRINT_SIZE 8
 static const __u8 SLOTS = 7;
-static const __u32 FSA_ARRAY_END = 432; // fsa has this many bits
-static const __u32 FCA_ARRAY_END = BUCKETS_PER_BLOCK*FCA_BITS; // fca has this many bits
+static const __u16 FSA_ARRAY_END = 432; // fsa has this many bits
+static const __u16 FCA_ARRAY_END = BUCKETS_PER_BLOCK*FCA_BITS; // fca has this many bits
 
 struct Block {
     // as long as fp_size = 8, bitarray will be __u8[]
-    __u8 bitarray[BLOCKSIZE_BITS/8];
+    __u8 bitarray[64];
 };
 
 // Due order of operation wrap 'k' in parentheses in case it
@@ -30,6 +30,8 @@ struct Block {
 #define ClearBit(A,k)   ( A[(k)/8] &= ~(1 << (7 - (k)%8)) )
 #define TestBit(A,k)    ( A[(k)/8] & (1 << (7 - (k)%8)) )
 
+#define BitMask(k) ( 1 << (7 - (k%8)) ) // 8-bit elements
+#define Bool(x)     x ? (__u8)1 : (__u8)0
 static __always_inline __u32 integer_exp(__u32 a, __u32 b){
 	/* a is the base, b is the exponent */
 	__u32 result = 1;

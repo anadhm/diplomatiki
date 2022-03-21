@@ -100,8 +100,8 @@ int xdp_morton_filter_func(struct xdp_md *ctx)
 	// }
 	/* check for UDP packets */
 	if (iph->protocol != IPPROTO_UDP){ // IPPROTO_UDP == 17
-		bpf_print("drop in udp,proto=%u",iph->protocol);
-		return XDP_DROP;
+		bpf_print("not udp,proto=%u",iph->protocol);
+		return XDP_PASS;
 	}
 	
 	struct udphdr *udph = data + sizeof(struct ethhdr) + sizeof(struct iphdr);

@@ -3,6 +3,8 @@ import time,os,sys,math
 
 if __name__ == '__main__':
     ntua_file = "../names/ntua_names"
+    opt = "ntua"
+    # opt = "all"
     domain_form = chr(len("example")) + "example" + chr(3) + "com"
     input_l = []
     with open(ntua_file,"r") as f:
@@ -13,27 +15,28 @@ if __name__ == '__main__':
             input_l.append(item)
     # if we want 0.95 load factor, then we need x*0.95 = len(input)
     # -> x = len(input)/0.95 -> blocks = x//46 +1 
-    se_names = "../names/se_names"
-    with open(se_names) as f:
-        lines = f.readlines()
-        for line in lines:
-            tokens = line.rstrip().split(".")
-            item = ""
-            for token in tokens:
-                item = item + chr(len(token)) + token
-            # print(item)
-            input_l.append(item)
-    
-    nu_names = "../names/nu_names"
-    with open(nu_names) as f:
-        lines = f.readlines()
-        for line in lines:
-            tokens = line.rstrip().split(".")
-            item = ""
-            for token in tokens:
-                item = item + chr(len(token)) + token
-            # print(item)
-            input_l.append(item)
+    if opt == "all":
+        se_names = "../names/se_names"
+        with open(se_names) as f:
+            lines = f.readlines()
+            for line in lines:
+                tokens = line.rstrip().split(".")
+                item = ""
+                for token in tokens:
+                    item = item + chr(len(token)) + token
+                # print(item)
+                input_l.append(item)
+        
+        nu_names = "../names/nu_names"
+        with open(nu_names) as f:
+            lines = f.readlines()
+            for line in lines:
+                tokens = line.rstrip().split(".")
+                item = ""
+                for token in tokens:
+                    item = item + chr(len(token)) + token
+                # print(item)
+                input_l.append(item)
             
 
     x = len(input_l)/0.95
@@ -73,7 +76,8 @@ if __name__ == '__main__':
     
     # write in file
     size = "_512_3_8" # 512 bit block, 3 slots/bucket, 8 bit fingerprint
-    output_file = '../xdp_code/filters/morton'+size+ '/output.txt'
+    output_file = '../xdp_code/filters/' \
+                +opt+ '_names/morton'+size+ '/output.txt'
     serialized = filter.serialize()
     with open(output_file,'w') as f:
         f.write(serialized)

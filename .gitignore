@@ -4,6 +4,7 @@
 /kernels
 /names
 /sample_codes
+/captures
 /morton_filter_cpp
 /filters_python/__pycache__
 /filters_python/debug
@@ -15,3 +16,13 @@ debug.txt
 *.ll
 /.vscode
 /xdp_code/filters/objdump.txt
+/images
+/bench_results
+/xdp_code/filters/all_names/cuckoo
+/xdp_code/filters/ntua_names/cuckoo
+/xdp_code/filters/all_names/bloom/control
+/xdp_code/filters/ntua_names/bloom/control
+/xdp_code/filters/ntua_names/xor8
+/captures.ods
+/all_captures.ods
+*lock*

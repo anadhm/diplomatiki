@@ -263,7 +263,7 @@ class MortonFilter:
     
     def insert(self,item,verbose=False):
         fp = fingerprint(item,self.fingerprint_size)
-        if (self.query(item)):
+        if (self.check(item)):
             if verbose:
                 print(f"item: {item} already in filter")
             return # if item seems already in the filter,don't add it again
@@ -310,6 +310,10 @@ class MortonFilter:
     def check_candidate_bucket(self,glbi,fp,verbose=False):
         """Returns true if candidate bucket is available."""
         alternate_bucket = self.h_prime(glbi,fp)
+        if (alternate_bucket == self.no_buckets*self.no_blocks):
+            # indexing starts at 0
+            # raises ListIndexOutOfRange otherwise
+            alternate_bucket = 0
         alt_blk = self.Blocks[alternate_bucket//self.no_buckets]
         alt_lbi = alternate_bucket % self.no_buckets
         alt_cap = alt_blk.bucket_capacity(alt_lbi)
@@ -468,7 +472,7 @@ class MortonFilter:
             # no_blocks*no_fingerprints > no_items
         return
 
-    def query(self,item,verbose=False):
+    def check(self,item,verbose=False):
         fp = fingerprint(item,self.fingerprint_size)
         glbi1 = self.h1(item)
         block1 = self.Blocks[glbi1//self.no_buckets]
@@ -518,7 +522,7 @@ if __name__ == '__main__':
         filter.insert("item"+str(i))
     start = time.time()
     for i in range(20000):
-        match = filter.query("item"+str(i))
+        match = filter.check("item"+str(i))
         matchAll &= match # must be True (no false negatives)
         if (not(match)):
             print("query failed for: item"+str(i))
